@@ -243,7 +243,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/stack/hybrid.rs`, `src/stack/method.rs`, `tests/stack_method.rs`.
   - Done: auto picks hybrid on textured stacks, DMap on smooth/low-confidence stacks; explicit methods override.
 
-- [ ] **S5.4 Initial blind tuning**
+- [x] **S5.4 Initial blind tuning**
   - Scope: run the 10-stack **tuning set** blind against baseline outputs, tune defaults, document open issues.
   - Read: `docs/quality.md` §5, §7.
   - Touch: `docs/quality-log.md`, default constants.

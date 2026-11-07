@@ -217,3 +217,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 13 new mask/method tests); mask is 0 on low-confidence/smooth pixels and 1 on confident textured pixels; masked transfer equals DMap where closed and equals unmasked transfer where open; auto selects hybrid at >=0.40 confident and DMap below
 - Decisions: `hybrid_mask` implements `smoothstep(c_lo,c_hi,c) * smoothstep(t,2t,Emax)` then the `r=8, eps=1e-3` guided filter; masked detail is applied after the §4.1 soft clamp and before §4.2 halo suppression; `MethodOptions` carries the auto threshold plus `HybridParameters{detail,halo,mask}`; explicit methods report reason `explicit`, auto reports `textured` or `low-confidence`
 - Follow-ups: core `method::Method` still duplicates `cli::Method`; CLI/pipeline dispatch and JSON report fields remain with S6/S7, and S5.4 tunes mask and auto thresholds
+
+## S5.4 — 2026-11-07 (blocked)
+
+- Scope: initial blind tuning of defaults against the 10-stack tuning set
+- Changed: `docs/quality-log.md`, `docs/session-log.md` (no code or default constants)
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` passes; no synthetic regression observed
+- Decisions: left the checkbox unchecked and defaults untouched — the blind A/B Done criterion cannot be met without the real stacks and commercial baselines
+- Follow-ups: add `fixtures/real/` tuning set plus Photoshop/Helicon/Zerene renders and two raters; then run `docs/quality.md` §5 and tune hybrid detail/halo/mask constants and the auto threshold
