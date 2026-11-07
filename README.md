@@ -6,13 +6,51 @@ Professional focus stacking for 3–4 16-bit TIFF frames, as a macOS Apple Silic
 - Output: 16-bit TIFF, linear-light pipeline, ICC preserved.
 - Engines: PMax (max detail), DMap (depth map), Hybrid (default).
 
-**Status:** planning. See [`plan.md`](plan.md) for the session-by-session build plan.
+**Status:** v0.1.0 (pre-release). See [`plan.md`](plan.md) for the
+session-by-session build plan.
+
+## Install
+
+macOS Apple Silicon only. Build from source:
+
+```bash
+cargo build --release
+./target/release/focus-stack --version
+```
+
+To build the distributable tarball, run `./scripts/package.sh`. The generated
+formula in `Formula/focus-stack.rb` provides the Homebrew install once the
+release artifact is published.
+
+## Quick start
+
+Export a focus bracket from Lightroom as 16-bit RGB TIFFs, then stack two or
+more frames:
+
+```bash
+focus-stack near.tif mid.tif far.tif -o all-in-focus.tif
+```
+
+Add review artifacts and a machine-readable report:
+
+```bash
+focus-stack near.tif mid.tif far.tif \
+  -o run/all-in-focus.tif \
+  --depth-map run/depth.tif \
+  --preview run/preview.jpg \
+  --report run/report.json
+```
+
+The output is a 16-bit TIFF that preserves the input ICC profile. See
+[`docs/usage.md`](docs/usage.md) for a complete sample workflow, tuning guide,
+and troubleshooting.
 
 ## Documentation
 
 | File | Contents |
 |---|---|
 | [`plan.md`](plan.md) | Roadmap, checkboxes, quality gates |
+| [`docs/usage.md`](docs/usage.md) | Install, sample workflow, tuning, troubleshooting |
 | [`docs/architecture.md`](docs/architecture.md) | Modules, data model, memory |
 | [`docs/io-and-color.md`](docs/io-and-color.md) | TIFF, ICC, Lightroom specifics |
 | [`docs/alignment.md`](docs/alignment.md) | Phase correlation, ECC, warping |

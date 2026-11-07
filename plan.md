@@ -321,7 +321,7 @@ the same stacks as tuning and validation sets.
   - Touch: `scripts/package.sh`, `Formula/focus-stack.rb`.
   - Done: clean-machine install; `focus-stack --version` works.
 
-- [ ] **S8.2 User documentation**
+- [x] **S8.2 User documentation**
   - Scope: README usage, sample workflow, tuning guide, troubleshooting.
   - Read: `docs/cli.md`; `docs/stacking.md` §6.
   - Touch: `README.md`, `docs/usage.md`.
