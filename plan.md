@@ -209,7 +209,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/stack/dmap.rs`, `tests/stack_dmap_threshold.rs`.
   - Done: threshold stable across fixture stacks; sky marked low-confidence; chosen value in report.
 
-- [ ] **S4.3 Edge-aware depth optimization**
+- [x] **S4.3 Edge-aware depth optimization**
   - Scope: edge-aware neighbor weights, coarse-to-fine Jacobi/multigrid solve, smoothing radius.
   - Read: `docs/stacking.md` §3.3.
   - Touch: `src/stack/dmap.rs`, `tests/stack_dmap_solve.rs`.

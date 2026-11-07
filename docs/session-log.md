@@ -177,3 +177,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 5 new threshold tests); synthetic sky/texture split keeps sky confidence at 0 and texture > 0.30; normalized threshold within 5% across three scaled fixture stacks; noise floor and cap bounds verified
 - Decisions: `ContrastThreshold` reports `threshold`, Otsu value, `k*sigma^2` floor, `0.1*p99` cap, override percent, confident percentage, and coverage percentage; Otsu runs over a 256-bin `log(Emax+eps)` histogram; automatic `t = min(max(otsu, floor), cap)`, while `--keep-detail` uses the `(1-PERCENT)` quantile capped the same way; the ramp is `smoothstep(t, 1.5*t, Emax) * margin` and zeroes confidence below `t`; coverage uses the focus module's `4*sigma^2` floor
 - Follow-ups: pipeline `--method dmap` wiring and the JSON report object remain with S4.4/S6.1; `--keep-detail` is parsed by the CLI but reaches DMap once the engine is wired
+
+## S4.3 — 2026-11-07
+
+- Scope: edge-aware depth solve — guide-weighted neighbours, coarse-to-fine Jacobi, Huber, Gaussian post-smooth, re-anchor
+- Changed: `src/stack/dmap.rs`, `tests/stack_dmap_solve.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 5 new solve tests, 1 ignored); flat unconfident bands smooth to <0.75-frame steps; guide ridge holds a >2.5-frame jump while a flat guide blends; convergence below 1e-3; `cargo test --release --test stack_dmap_solve -- --ignored` (24 MP in 1.01 s, gate 2 s)
+- Decisions: `solve_depth` takes a caller-supplied guide luma and operates on `InitialDepth::field`; edge weights use a 1024-entry linear-interpolated exp LUT over [0,16]; pyramid is 1/8→1/4→1/1 with confidence-weighted depth downsampling; Huber is a clamped neighbour difference inside the Jacobi step; post-smooth is skipped when every pixel is confident, then positive-confidence pixels are re-anchored to `d0`
+- Follow-ups: S4.4 supplies the real luma guide and consumes `SolvedDepth`; pipeline wiring remains with S4.4

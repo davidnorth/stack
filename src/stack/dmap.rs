@@ -357,6 +357,515 @@ pub fn argmax_depth(volume: &CostVolume, confidence: Option<&[f32]>) -> InitialD
     }
 }
 
+/// Default data weight `alpha` in the §3.3 energy.
+pub const DEFAULT_ALPHA: f32 = 1.0;
+/// Default smoothness weight `lambda` in the §3.3 energy.
+pub const DEFAULT_LAMBDA: f32 = 1.0;
+/// Guide-luma scale `sigma_g` for the edge-aware neighbour weights.
+pub const GUIDE_SIGMA: f32 = 0.08;
+/// Huber threshold `delta` in frame units.
+pub const HUBER_DELTA: f32 = 1.0;
+/// Jacobi iteration cap per pyramid level.
+pub const JACOBI_ITERATIONS: usize = 30;
+/// Convergence threshold on the maximum per-iteration update, in frames.
+pub const JACOBI_TOLERANCE: f32 = 1.0e-3;
+/// Default post-solve Gaussian radius, in pixels.
+pub const DEFAULT_SMOOTHING_RADIUS: f32 = 1.0;
+
+/// Number of coarse-to-fine levels: 1/8, 1/4, 1/1.
+const SOLVE_LEVELS: usize = 3;
+
+/// Resolution of the edge-weight lookup table.
+const WEIGHT_LUT_SIZE: usize = 1024;
+/// Largest exponent stored in the edge-weight lookup table.
+const WEIGHT_LUT_MAX: f32 = 16.0;
+
+/// Options for the edge-aware depth solve from `docs/stacking.md` §3.3.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SolveOptions {
+    /// Data-term weight `alpha`.
+    pub alpha: f32,
+    /// Smoothness weight `lambda`. Larger values give smoother depth.
+    pub lambda: f32,
+    /// Guide-luma scale `sigma_g` in the edge-aware weight.
+    pub guide_sigma: f32,
+    /// Huber threshold `delta` in frame units.
+    pub huber_delta: f32,
+    /// Maximum Jacobi iterations per level.
+    pub iterations: usize,
+    /// Stop a level when the largest update falls below this, in frames.
+    pub tolerance: f32,
+    /// Post-solve Gaussian radius in pixels. Zero disables the post-smooth.
+    ///
+    /// The Gaussian standard deviation is half the radius, matching Zerene's
+    /// "half the estimation radius" relationship. The default is half a small
+    /// estimation radius.
+    pub smoothing_radius: f32,
+}
+
+impl Default for SolveOptions {
+    fn default() -> Self {
+        Self {
+            alpha: DEFAULT_ALPHA,
+            lambda: DEFAULT_LAMBDA,
+            guide_sigma: GUIDE_SIGMA,
+            huber_delta: HUBER_DELTA,
+            iterations: JACOBI_ITERATIONS,
+            tolerance: JACOBI_TOLERANCE,
+            smoothing_radius: DEFAULT_SMOOTHING_RADIUS,
+        }
+    }
+}
+
+/// Result of [`solve_depth`], including the convergence evidence.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SolvedDepth {
+    /// Solved continuous depth and the original confidence.
+    pub field: DepthField,
+    /// Total Jacobi iterations across all levels.
+    pub iterations: usize,
+    /// Largest update seen in the final level, in frames.
+    pub max_update: f32,
+    /// Whether every level met [`SolveOptions::tolerance`].
+    pub converged: bool,
+}
+
+#[derive(Debug, Clone)]
+struct SolveLevel {
+    width: usize,
+    height: usize,
+    depth: Vec<f32>,
+    confidence: Vec<f32>,
+    guide: Vec<f32>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LevelSolve {
+    iterations: usize,
+    max_update: f32,
+    converged: bool,
+}
+
+/// Solve the edge-aware depth energy from `docs/stacking.md` §3.3.
+///
+/// `initial` supplies `d0` and confidence; `guide` is the same-size luma image
+/// used for the edge-aware neighbour weights. The solve runs coarse-to-fine at
+/// 1/8, 1/4, and 1/1, then applies a Gaussian post-smooth and re-anchors every
+/// pixel with positive confidence to its initial `d0`. Flat, unconfident
+/// regions therefore become smooth while textured edges stay sharp.
+///
+/// # Panics
+///
+/// Panics if dimensions are zero or the initial/guide buffers have the wrong
+/// length.
+#[must_use]
+pub fn solve_depth(
+    initial: &InitialDepth,
+    guide: &[f32],
+    width: u32,
+    height: u32,
+    options: SolveOptions,
+) -> SolvedDepth {
+    assert!(width > 0 && height > 0, "image dimensions must be non-zero");
+    let count = (width as usize) * (height as usize);
+    assert_eq!(initial.field.d.len(), count, "depth buffer length mismatch");
+    assert_eq!(
+        initial.field.confidence.len(),
+        count,
+        "confidence buffer length mismatch"
+    );
+    assert_eq!(guide.len(), count, "guide buffer length mismatch");
+
+    let options = sanitize_solve_options(options);
+    let levels = build_solve_levels(initial, guide, width as usize, height as usize);
+    let weights = build_weight_table();
+
+    let mut current: Option<Vec<f32>> = None;
+    let mut current_width = 0usize;
+    let mut current_height = 0usize;
+    let mut iterations = 0usize;
+    let mut max_update = 0.0f32;
+    let mut converged = true;
+
+    for level in levels.iter().rev() {
+        let depth = match &current {
+            Some(coarse) => upsample_bilinear(
+                coarse,
+                current_width,
+                current_height,
+                level.width,
+                level.height,
+            ),
+            None => level.depth.clone(),
+        };
+        let (solved, report) = solve_level(level, depth, options, &weights);
+        iterations += report.iterations;
+        max_update = report.max_update;
+        converged &= report.converged;
+        current = Some(solved);
+        current_width = level.width;
+        current_height = level.height;
+    }
+
+    let mut depth = current.expect("at least one solve level");
+    let has_flat = initial
+        .field
+        .confidence
+        .iter()
+        .any(|&confidence| sanitize_confidence(confidence) <= 0.0);
+    if options.smoothing_radius > 0.0 && has_flat {
+        depth = gaussian_smooth(
+            &depth,
+            width as usize,
+            height as usize,
+            options.smoothing_radius,
+        );
+    }
+
+    // Re-anchor trusted pixels once so the post-smooth cannot soften an edge.
+    for (value, (&d0, &confidence)) in depth
+        .iter_mut()
+        .zip(initial.field.d.iter().zip(&initial.field.confidence))
+    {
+        if sanitize_confidence(confidence) > 0.0 {
+            *value = d0;
+        }
+    }
+
+    SolvedDepth {
+        field: DepthField {
+            d: depth,
+            confidence: initial.field.confidence.clone(),
+        },
+        iterations,
+        max_update,
+        converged,
+    }
+}
+
+fn build_solve_levels(
+    initial: &InitialDepth,
+    guide: &[f32],
+    width: usize,
+    height: usize,
+) -> Vec<SolveLevel> {
+    let mut levels = Vec::with_capacity(SOLVE_LEVELS);
+    levels.push(SolveLevel {
+        width,
+        height,
+        depth: initial.field.d.clone(),
+        confidence: initial.field.confidence.clone(),
+        guide: guide.to_vec(),
+    });
+
+    while levels.len() < SOLVE_LEVELS {
+        let last = levels.last().expect("at least one level");
+        if last.width == 1 && last.height == 1 {
+            break;
+        }
+        let next = downsample_level(last);
+        levels.push(next);
+    }
+
+    levels
+}
+
+fn downsample_level(level: &SolveLevel) -> SolveLevel {
+    let width = level.width.div_ceil(2).max(1);
+    let height = level.height.div_ceil(2).max(1);
+    let mut depth = vec![0.0f32; width * height];
+    let mut confidence = vec![0.0f32; width * height];
+    let mut guide = vec![0.0f32; width * height];
+
+    for y in 0..height {
+        for x in 0..width {
+            let mut confidence_sum = 0.0f32;
+            let mut weighted_depth = 0.0f32;
+            let mut guide_sum = 0.0f32;
+            let mut samples = 0u32;
+
+            for dy in 0..2 {
+                let sy = y * 2 + dy;
+                if sy >= level.height {
+                    break;
+                }
+                for dx in 0..2 {
+                    let sx = x * 2 + dx;
+                    if sx >= level.width {
+                        continue;
+                    }
+                    let index = sy * level.width + sx;
+                    let c = sanitize_confidence(level.confidence[index]);
+                    confidence_sum += c;
+                    weighted_depth += c * sanitize_depth(level.depth[index]);
+                    guide_sum += sanitize_guide(level.guide[index]);
+                    samples += 1;
+                }
+            }
+
+            let index = y * width + x;
+            let samples = samples.max(1) as f32;
+            confidence[index] = confidence_sum / samples;
+            depth[index] = if confidence_sum > COST_EPSILON {
+                weighted_depth / confidence_sum
+            } else {
+                0.0
+            };
+            guide[index] = guide_sum / samples;
+        }
+    }
+
+    SolveLevel {
+        width,
+        height,
+        depth,
+        confidence,
+        guide,
+    }
+}
+
+fn solve_level(
+    level: &SolveLevel,
+    mut depth: Vec<f32>,
+    options: SolveOptions,
+    weight_table: &[f32],
+) -> (Vec<f32>, LevelSolve) {
+    let width = level.width;
+    let height = level.height;
+    let count = width * height;
+    let alpha = options.alpha;
+    let lambda = options.lambda;
+    let delta = options.huber_delta;
+    let inv_two_sigma_sq = 1.0 / (2.0 * options.guide_sigma * options.guide_sigma);
+
+    // Edge weights are fixed for the level: horizontal (`right`) and vertical
+    // (`down`) neighbour weights, shared by the opposite direction.
+    let mut right = vec![0.0f32; count];
+    let mut down = vec![0.0f32; count];
+    for y in 0..height {
+        for x in 0..width {
+            let index = y * width + x;
+            if x + 1 < width {
+                let diff = level.guide[index + 1] - level.guide[index];
+                right[index] = edge_weight(diff, inv_two_sigma_sq, weight_table);
+            }
+            if y + 1 < height {
+                let diff = level.guide[index + width] - level.guide[index];
+                down[index] = edge_weight(diff, inv_two_sigma_sq, weight_table);
+            }
+        }
+    }
+
+    // The linear part of the Jacobi update is constant across iterations:
+    // `data = alpha*c*d0`, `weight = alpha*c`, and `1/(weight + lambda*W)`.
+    let mut data = vec![0.0f32; count];
+    let mut weight = vec![0.0f32; count];
+    let mut inv_denominator = vec![0.0f32; count];
+    for y in 0..height {
+        for x in 0..width {
+            let index = y * width + x;
+            let c = sanitize_confidence(level.confidence[index]);
+            let left = if x > 0 { right[index - 1] } else { 0.0 };
+            let up = if y > 0 { down[index - width] } else { 0.0 };
+            let edge_sum = right[index] + down[index] + left + up;
+            let data_weight = alpha * c;
+            let denominator = data_weight + lambda * edge_sum;
+
+            data[index] = data_weight * sanitize_depth(level.depth[index]);
+            weight[index] = data_weight;
+            inv_denominator[index] = if denominator > COST_EPSILON {
+                1.0 / denominator
+            } else {
+                0.0
+            };
+        }
+    }
+
+    let mut next = vec![0.0f32; count];
+    let mut max_update = 0.0f32;
+    let mut converged = false;
+    let mut iterations = 0usize;
+
+    for _ in 0..options.iterations {
+        let mut iteration_update = 0.0f32;
+        for y in 0..height {
+            let row = y * width;
+            let has_up = y > 0;
+            let has_down = y + 1 < height;
+            for x in 0..width {
+                let index = row + x;
+                let old = depth[index];
+                let mut smooth = 0.0f32;
+                if x > 0 {
+                    smooth += right[index - 1] * (depth[index - 1] - old).clamp(-delta, delta);
+                }
+                if x + 1 < width {
+                    smooth += right[index] * (depth[index + 1] - old).clamp(-delta, delta);
+                }
+                if has_up {
+                    smooth +=
+                        down[index - width] * (depth[index - width] - old).clamp(-delta, delta);
+                }
+                if has_down {
+                    smooth += down[index] * (depth[index + width] - old).clamp(-delta, delta);
+                }
+
+                let inv = inv_denominator[index];
+                let value = old + inv * (data[index] - weight[index] * old + lambda * smooth);
+                next[index] = value;
+                iteration_update = iteration_update.max((value - old).abs());
+            }
+        }
+
+        std::mem::swap(&mut depth, &mut next);
+        iterations += 1;
+        max_update = iteration_update;
+        if iteration_update < options.tolerance {
+            converged = true;
+            break;
+        }
+    }
+
+    (
+        depth,
+        LevelSolve {
+            iterations,
+            max_update,
+            converged,
+        },
+    )
+}
+
+fn build_weight_table() -> Vec<f32> {
+    let mut table = Vec::with_capacity(WEIGHT_LUT_SIZE + 1);
+    for index in 0..=WEIGHT_LUT_SIZE {
+        let x = WEIGHT_LUT_MAX * index as f32 / WEIGHT_LUT_SIZE as f32;
+        table.push((-x).exp());
+    }
+    table
+}
+
+/// Look up `exp(-diff^2 / (2*sigma^2))` with linear interpolation.
+fn edge_weight(diff: f32, inv_two_sigma_sq: f32, table: &[f32]) -> f32 {
+    let x = (diff * diff * inv_two_sigma_sq).min(WEIGHT_LUT_MAX);
+    let position = x * (WEIGHT_LUT_SIZE as f32 / WEIGHT_LUT_MAX);
+    let index = (position as usize).min(WEIGHT_LUT_SIZE - 1);
+    let fraction = position - index as f32;
+    let low = table[index];
+    low + (table[index + 1] - low) * fraction
+}
+
+fn upsample_bilinear(
+    source: &[f32],
+    source_width: usize,
+    source_height: usize,
+    width: usize,
+    height: usize,
+) -> Vec<f32> {
+    if source_width == width && source_height == height {
+        return source.to_vec();
+    }
+
+    let mut out = vec![0.0f32; width * height];
+    let scale_x = source_width as f32 / width as f32;
+    let scale_y = source_height as f32 / height as f32;
+
+    for y in 0..height {
+        let fy = ((y as f32 + 0.5) * scale_y - 0.5).clamp(0.0, (source_height - 1) as f32);
+        let y0 = fy.floor() as usize;
+        let y1 = (y0 + 1).min(source_height - 1);
+        let ty = fy - y0 as f32;
+
+        for x in 0..width {
+            let fx = ((x as f32 + 0.5) * scale_x - 0.5).clamp(0.0, (source_width - 1) as f32);
+            let x0 = fx.floor() as usize;
+            let x1 = (x0 + 1).min(source_width - 1);
+            let tx = fx - x0 as f32;
+
+            let top =
+                source[y0 * source_width + x0] * (1.0 - tx) + source[y0 * source_width + x1] * tx;
+            let bottom =
+                source[y1 * source_width + x0] * (1.0 - tx) + source[y1 * source_width + x1] * tx;
+            out[y * width + x] = top * (1.0 - ty) + bottom * ty;
+        }
+    }
+
+    out
+}
+
+fn gaussian_smooth(values: &[f32], width: usize, height: usize, radius: f32) -> Vec<f32> {
+    let sigma = (0.5 * radius).max(COST_EPSILON);
+    let reach = radius.ceil() as isize;
+    if reach <= 0 {
+        return values.to_vec();
+    }
+
+    let mut kernel = Vec::with_capacity((2 * reach + 1) as usize);
+    let mut total = 0.0f32;
+    for offset in -reach..=reach {
+        let weight = (-((offset * offset) as f32) / (2.0 * sigma * sigma)).exp();
+        kernel.push(weight);
+        total += weight;
+    }
+    for weight in &mut kernel {
+        *weight /= total;
+    }
+
+    let mut horizontal = vec![0.0f32; width * height];
+    for y in 0..height {
+        for x in 0..width {
+            let mut sum = 0.0f32;
+            for (offset, &weight) in (-reach..=reach).zip(&kernel) {
+                let sx = (x as isize + offset).clamp(0, width as isize - 1) as usize;
+                sum += weight * values[y * width + sx];
+            }
+            horizontal[y * width + x] = sum;
+        }
+    }
+
+    let mut out = vec![0.0f32; width * height];
+    for y in 0..height {
+        for x in 0..width {
+            let mut sum = 0.0f32;
+            for (offset, &weight) in (-reach..=reach).zip(&kernel) {
+                let sy = (y as isize + offset).clamp(0, height as isize - 1) as usize;
+                sum += weight * horizontal[sy * width + x];
+            }
+            out[y * width + x] = sum;
+        }
+    }
+
+    out
+}
+
+fn sanitize_solve_options(options: SolveOptions) -> SolveOptions {
+    SolveOptions {
+        alpha: sanitize_non_negative(options.alpha),
+        lambda: sanitize_non_negative(options.lambda),
+        guide_sigma: sanitize_sigma(options.guide_sigma),
+        huber_delta: if options.huber_delta.is_finite() {
+            options.huber_delta.abs()
+        } else {
+            HUBER_DELTA
+        },
+        iterations: options.iterations,
+        tolerance: sanitize_non_negative(options.tolerance),
+        smoothing_radius: sanitize_non_negative(options.smoothing_radius),
+    }
+}
+
+fn sanitize_depth(value: f32) -> f32 {
+    if value.is_finite() {
+        value.max(0.0)
+    } else {
+        0.0
+    }
+}
+
+fn sanitize_guide(value: f32) -> f32 {
+    if value.is_finite() { value } else { 0.0 }
+}
+
 /// Otsu split of the log-energy histogram from §3.2 step 3.
 ///
 /// The logarithm compresses the long energy tail so the split tracks texture
