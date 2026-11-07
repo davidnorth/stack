@@ -12,6 +12,7 @@ categories = ["multimedia::images", "command-line-utilities"]
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"] }
 lcms2 = { version = "6.1.1", features = ["static"] }
+rayon = "1.11"
 serde = { version = "1.0.229", features = ["derive"] }
 tiff = { version = "0.11.3", default-features = false, features = ["deflate", "lzw"] }
 toml = "1.2.1"

@@ -137,7 +137,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/align/ecc.rs`, `tests/align_ecc.rs`.
   - Done: <0.05 px on synthetic; robust with 5% outlier pixels; composes with coarse estimate.
 
-- [ ] **S1.5 Lanczos warp and crop**
+- [x] **S1.5 Lanczos warp and crop**
   - Scope: separable Lanczos3 in linear light, edge clamp, anti-alias pre-blur on minification, valid-rect crop, rayon rows.
   - Read: `docs/alignment.md` §6–7.
   - Touch: `src/align/warp.rs`, `tests/align_warp.rs`.
