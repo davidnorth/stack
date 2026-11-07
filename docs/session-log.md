@@ -265,3 +265,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` passes (73 unit + all integration; 11 new metrics tests); ΔE00 matches 34 Sharma reference pairs within 1e-4; SSIM matches an independent double-precision 11×11 Gaussian reference at 0.992557295; analytic PSNR/detail/noise/halo cases pass; `eval` CLI prints the table and emits JSON with `noise_gain: null` when no input frame is supplied
 - Decisions: linear Rec. 709 luma for PSNR/SSIM/detail/noise; SSIM uses an 11×11 Gaussian with σ=1.5, border-truncated and renormalized; GT-sharp is `|grad truth| > p70`, flat is the complement; halo is P99 `|test-truth|` in a 5 px Chebyshev band around depth edges, normalized by truth range in a 21×21 window, with truth luma edges as fallback when `--depth` is absent; noise gain needs `--input` and selects the highest gradient-energy frame; ΔE00 converts linear sRGB to D65 Lab
 - Follow-ups: S7.2 should consume `eval --json` in the fixture manifest; `eval` assumes encoded sRGB TIFFs (no ICC conversion yet)
+
+## S7.2 — 2026-11-07
+
+- Scope: tiny regression suite, fixture manifest with golden metrics and tolerances, CI jobs
+- Changed: `fixtures/manifest.toml`, `tests/regression.rs`, `.github/workflows/ci.yml`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` passes (7 new regression tests); sequential tiny suite 64 s, parallel 20 s (`< 2 min`); deliberately moving `stack-512-pmax` PSNR by 0.3 dB made the gate fail; CI splits fmt/clippy/test/regression and adds a scheduled release job; YAML parses
+- Decisions: manifest holds per-engine golden PSNR/SSIM/detail/halo/noise/ΔE00 plus the §4 tolerances, I/O round-trip list, alignment goldens, and report keys; metrics call `quality::metrics::evaluate` directly instead of `eval --json` because the pipeline writes linear samples and `eval` currently decodes TIFFs as encoded sRGB; golden image hashes are not used for quality; the regression CI step prebuilds, then runs with a 2-minute step timeout
+- Follow-ups: `hybrid` and `auto` still hit the pipeline reference fallback, so the hybrid golden records that behavior and will need a manifest update when the engine is wired; nightly runs the full release suite but 2 MP fixtures are not committed yet

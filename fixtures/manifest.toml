@@ -1,0 +1,80 @@
+# Regression fixture manifest (`docs/quality.md` §4).
+#
+# Expected metrics are golden values captured on macOS arm64. A PR fails when a
+# measured metric moves beyond the tolerance below; update the expected value
+# in the same PR and explain the change.
+schema_version = 1
+
+[tolerances]
+psnr_db = 0.2
+ssim = 0.001
+detail_recovery = 0.01
+halo_overshoot = 0.002
+noise_gain = 0.02
+delta_e00 = 0.1
+
+[io]
+# Orientation=1, 16-bit RGB fixture files that must survive a read/write/read
+# round-trip bit-exactly.
+roundtrip = [
+  "io/rgb16_none.tif",
+  "io/rgb16_lzw.tif",
+  "io/rgb16_deflate.tif",
+]
+
+[[alignment]]
+id = "transforms-96"
+config = "synthetic/transforms_96.toml"
+# Golden phase-correlation estimate for the committed known-transform stack.
+golden_dx = -0.020675
+golden_dy = -0.032598
+tolerance_px = 0.05
+
+# One 512x512 synthetic stack per engine. `hybrid` currently exercises the
+# pipeline's reference fallback until the hybrid engine is wired into it.
+[[stack]]
+id = "stack-512-pmax"
+config = "synthetic/stack_512.toml"
+method = "pmax"
+psnr_db = 24.067334
+ssim = 0.838541
+detail_recovery = 0.537520
+halo_overshoot = 0.000000
+noise_gain = 0.899872
+delta_e00 = 5.660125
+
+[[stack]]
+id = "stack-512-dmap"
+config = "synthetic/stack_512.toml"
+method = "dmap"
+psnr_db = 23.989186
+ssim = 0.712625
+detail_recovery = 0.427754
+halo_overshoot = 0.000000
+noise_gain = 0.859214
+delta_e00 = 6.787344
+
+[[stack]]
+id = "stack-512-hybrid"
+config = "synthetic/stack_512.toml"
+method = "hybrid"
+psnr_db = 13.308297
+ssim = 0.576447
+detail_recovery = 0.115493
+halo_overshoot = 0.000000
+noise_gain = 0.653037
+delta_e00 = 13.757313
+
+[report]
+method = "pmax"
+required_keys = [
+  "schema_version",
+  "tool",
+  "inputs",
+  "params",
+  "alignment",
+  "focus",
+  "method",
+  "output",
+  "warnings",
+]

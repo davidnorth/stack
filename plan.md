@@ -287,7 +287,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/quality/metrics.rs`, `tests/metrics.rs`.
   - Done: metrics match reference values on known images; CLI reports a table.
 
-- [ ] **S7.2 Regression suite and CI gates**
+- [x] **S7.2 Regression suite and CI gates**
   - Scope: fixture manifest, golden outputs, tolerance policy, CI jobs.
   - Read: `docs/quality.md` §4.
   - Touch: `tests/regression.rs`, `.github/workflows/ci.yml`, `fixtures/manifest.toml`.
