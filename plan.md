@@ -159,7 +159,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/focus/pyramid.rs`, `tests/focus_pyramid.rs`.
   - Done: reconstruct identity within 1e-6; level count correct for 24 MP; memory measured.
 
-- [ ] **S2.2 Noise estimation**
+- [x] **S2.2 Noise estimation**
   - Scope: per-level sigma via MAD on a low-gradient mask; noise floor.
   - Read: `docs/focus-measure.md` §3.
   - Touch: `src/focus/noise.rs`, `tests/focus_noise.rs`.

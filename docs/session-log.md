@@ -120,3 +120,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 5 new pyramid tests); reconstruction max error < 1e-6; level count 6 at 6000×4000 and 7 at 9504×6336; measured 1024×768 at 9.49 MiB (3.16× base), 24 MP projected at 289.86 MiB
 - Decisions: downsample keeps even samples after the separable `[1,4,6,4,1]/16` blur; upsample is bilinear with source coordinate `x / 2` and edge clamp, shared by analysis and reconstruction; §2's `L` counts bands, so the stored level count is `L + 1` including the residual, matching the documented 6/7 examples; `build` reuses level and blur buffers and subtracts the upsample directly, avoiding a full-size temporary
 - Follow-ups: S2.2 consumes `Pyramid::levels()` Gaussian/Laplacian buffers; mapping to the shared `FocusPyramid` shape can happen when the pipeline is wired
+
+## S2.2 — 2026-11-07
+
+- Scope: per-level noise sigma via MAD on a low-gradient mask, noise floor
+- Changed: `src/focus/noise.rs`, `tests/focus_noise.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 5 new noise tests); synthetic per-level sigma within 5% at 0.01/0.02/0.04; textured half does not inflate the 0.012 estimate
+- Decisions: gradient magnitude is central-difference `hypot` on `G_l`; mask uses the strict `< p20` from §3 with an `<=` tie fallback so flat regions with zero gradient still contribute; MAD is centred on the median, which equals `1.4826 * median(|Lap|)` for zero-mean bands and keeps the coarsest residual from reporting its brightness as noise; sigma clamps to `1e-6`; expose `NoiseModel` per level plus `noise_floor`/`subtract_noise_floor` for S2.3
+- Follow-ups: JSON report wiring of per-frame/per-level sigma remains with the report task; mask/median allocation can be pooled with the focus workspace later if profiling shows it
