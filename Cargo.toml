@@ -1,0 +1,17 @@
+[package]
+name = "focus-stack"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+description = "Professional focus stacking for macOS Apple Silicon"
+license = "MIT"
+readme = "README.md"
+keywords = ["photography", "focus-stacking", "tiff", "image-processing"]
+categories = ["multimedia::images", "command-line-utilities"]
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"

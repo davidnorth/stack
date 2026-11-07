@@ -1,0 +1,1 @@
+//! Gaussian and Laplacian pyramids.

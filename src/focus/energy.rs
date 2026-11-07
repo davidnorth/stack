@@ -1,0 +1,1 @@
+//! Box energy and normalization.

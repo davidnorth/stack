@@ -1,0 +1,13 @@
+# Build output
+target/
+**/*.rs.bk
+*.profraw
+
+# Automation state
+.ralph/
+__pycache__/
+
+# Editors and OS files
+.DS_Store
+.idea/
+.vscode/

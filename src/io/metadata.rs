@@ -1,0 +1,1 @@
+//! Metadata copy policy.
