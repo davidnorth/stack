@@ -299,7 +299,7 @@ the same stacks as tuning and validation sets.
   - Touch: `docs/quality-log.md`.
   - Done: documented results and prioritized artifact list.
 
-- [ ] **S7.4 Benchmarks and memory profile**
+- [x] **S7.4 Benchmarks and memory profile**
   - Scope: criterion benches for align, measure, stack; 24 MP and 60 MP; peak RSS.
   - Read: `docs/quality.md` §6.
   - Touch: `benches/*`, `docs/performance.md`.

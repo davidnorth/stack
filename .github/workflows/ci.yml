@@ -129,3 +129,39 @@ jobs:
       # they are committed; until then this covers every available target.
       - name: Run full suite
         run: cargo test --release --all-targets
+
+  bench:
+    name: Performance benchmarks
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify runner architecture
+        run: test "$(uname -m)" = "arm64"
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # Criterion's default sample count is lowered in benches/common/mod.rs.
+      # Compare against the limits from docs/performance.md; a breach fails
+      # the run so a regression is visible in CI.
+      - name: Run Criterion benchmarks
+        run: cargo bench --bench align --bench measure --bench stack_pmax --bench stack_dmap --bench stack_hybrid -- --noplot
+
+      - name: Check performance limits
+        run: python3 benches/check_performance.py
+
+      - name: Upload Criterion results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion
+          path: target/criterion

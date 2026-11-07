@@ -20,6 +20,27 @@ tiff = { version = "0.11.3", default-features = false, features = ["deflate", "l
 toml = "1.2.1"
 
 [dev-dependencies]
+criterion = "0.8.2"
+
+[[bench]]
+name = "align"
+harness = false
+
+[[bench]]
+name = "measure"
+harness = false
+
+[[bench]]
+name = "stack_pmax"
+harness = false
+
+[[bench]]
+name = "stack_dmap"
+harness = false
+
+[[bench]]
+name = "stack_hybrid"
+harness = false
 
 [lints.rust]
 unsafe_code = "forbid"

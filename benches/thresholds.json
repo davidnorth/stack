@@ -1,0 +1,25 @@
+{
+  "note": "Gross-regression limits for the scheduled CI bench job. Each limit is 2x the Apple M1 (8 GB) reference median in docs/performance.md. Raise a limit only with an explanation in the PR.",
+  "limits_ns": {
+    "align_ecc_24mp": 5363323208,
+    "align_ecc_60mp": 4609103384,
+    "align_phase_24mp": 273618748,
+    "align_phase_60mp": 274473014,
+    "align_preprocess_24mp": 586185554,
+    "align_preprocess_60mp": 871520492,
+    "measure_aggregate_24mp": 104039682,
+    "measure_aggregate_60mp": 326779484,
+    "measure_energy_24mp": 122103510,
+    "measure_energy_60mp": 300491134,
+    "measure_noise_24mp": 524905700,
+    "measure_noise_60mp": 1403916734,
+    "measure_pyramid_24mp": 205549092,
+    "measure_pyramid_60mp": 518912234,
+    "stack_dmap_24mp": 42548691400,
+    "stack_dmap_60mp": 129062688700,
+    "stack_hybrid_merge_24mp": 1286033532,
+    "stack_hybrid_merge_60mp": 32330829558,
+    "stack_pmax_24mp": 7572248566,
+    "stack_pmax_60mp": 17427483900
+  }
+}
