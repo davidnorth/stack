@@ -3,7 +3,7 @@
 use std::fmt;
 use std::fmt::Write as _;
 use std::io::{self, IsTerminal, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::cli::{Cli, Compression, Method, Reference};
 use crate::color::luma::encoded_luma_buffer;
@@ -12,13 +12,15 @@ use crate::focus::confidence::{
     ConfidenceMap, ConfidenceOptions, FrameCalibration, saturation_mask,
 };
 use crate::focus::energy::{EnergyMaps, EnergyOptions};
-use crate::focus::noise::{self, DEFAULT_NOISE_K};
+use crate::focus::noise::{self, DEFAULT_NOISE_K, SIGMA_EPSILON};
 use crate::focus::pyramid::Pyramid;
 use crate::io::metadata::MetadataPolicy;
 use crate::io::tiff_read::read_tiff;
 use crate::io::tiff_write::{self, WriteOptions};
+use crate::output::depth::write_depth_map;
+use crate::stack::dmap::{self, CostVolume, DmapOptions, InterpolationOptions};
 use crate::stack::pmax::{self, WeightOptions};
-use crate::{Frame, VERSION};
+use crate::{DepthField, Frame, VERSION};
 
 /// Pipeline failure with the exit code documented in `docs/cli.md` §5.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,16 +121,55 @@ pub fn run(cli: &Cli) -> Result<(), PipelineError> {
         },
     };
 
-    let output = if cli.method == Method::Pmax && frames.len() > 1 {
-        progress.step(format_args!("stacking with PMax"));
-        pmax_frame(cli, &frames, reference)
-    } else {
-        frames[reference].clone()
+    let mut depth: Option<DepthField> = None;
+    let output = match cli.method {
+        Method::Pmax if frames.len() > 1 => {
+            progress.step(format_args!("stacking with PMax"));
+            pmax_frame(cli, &frames, reference)
+        }
+        Method::Dmap => {
+            progress.step(format_args!("stacking with DMap"));
+            let (frame, field) = dmap_frame(cli, &frames, reference);
+            depth = Some(field);
+            frame
+        }
+        _ => frames[reference].clone(),
     };
+
+    let depth_paths: Vec<&Path> = cli
+        .depth_map
+        .iter()
+        .chain(cli.source_map.iter())
+        .map(PathBuf::as_path)
+        .collect();
+    if depth.is_none() && !depth_paths.is_empty() {
+        progress.step(format_args!("solving DMap depth for the depth map"));
+        let (_, field) = dmap_frame(cli, &frames, reference);
+        depth = Some(field);
+    }
 
     progress.step(format_args!("writing {}", cli.output.display()));
     tiff_write::write_tiff(&cli.output, &output, &options)
         .map_err(|err| PipelineError::Io(err.to_string()))?;
+
+    if let Some(field) = &depth {
+        for path in depth_paths {
+            let report = write_depth_map(
+                path,
+                &field.d,
+                first.meta.width,
+                first.meta.height,
+                frames.len(),
+            )
+            .map_err(|err| PipelineError::Io(err.to_string()))?;
+            if report.all_zero {
+                Progress::warn(format_args!(
+                    "depth map '{}' is all zeros for a single input frame",
+                    path.display()
+                ));
+            }
+        }
+    }
 
     if let Some(path) = &cli.report {
         write_report(path, cli, &frames, reference)?;
@@ -150,13 +191,24 @@ pub fn run(cli: &Cli) -> Result<(), PipelineError> {
 /// Focus energies come from the encoded luma pyramids from
 /// `docs/focus-measure.md`; blending happens in linear light per
 /// `docs/stacking.md` §2.2–2.3.
-fn pmax_frame(cli: &Cli, frames: &[Frame], reference: usize) -> Frame {
-    let reference_frame = &frames[reference];
-    let width = reference_frame.meta.width;
-    let height = reference_frame.meta.height;
+struct FocusInputs {
+    width: u32,
+    height: u32,
+    encoded: Vec<Vec<f32>>,
+    guide: Vec<f32>,
+    energies: Vec<EnergyMaps>,
+    aggregates: Vec<Vec<f32>>,
+    calibrations: Vec<FrameCalibration>,
+    saturation: Vec<Vec<bool>>,
+}
+
+/// Focus evidence shared by the PMax and DMap engines.
+fn focus_inputs(cli: &Cli, frames: &[Frame], reference: usize) -> FocusInputs {
+    let width = frames[reference].meta.width;
+    let height = frames[reference].meta.height;
     let count = (width as usize) * (height as usize);
 
-    let mut encoded: Vec<Vec<f32>> = frames
+    let encoded: Vec<Vec<f32>> = frames
         .iter()
         .map(|frame| {
             frame
@@ -199,40 +251,96 @@ fn pmax_frame(cli: &Cli, frames: &[Frame], reference: usize) -> Frame {
         saturation.push(saturation_mask(rgb, width, height, 3));
     }
 
-    let confidence = ConfidenceMap::compute(
-        &aggregates,
-        &guide,
+    FocusInputs {
         width,
         height,
-        &calibrations,
-        Some(&saturation),
-        ConfidenceOptions::default(),
-    );
+        encoded,
+        guide,
+        energies,
+        aggregates,
+        calibrations,
+        saturation,
+    }
+}
 
-    // Decode to linear light in place to avoid a second full-resolution copy.
-    for rgb in &mut encoded {
+fn decode_linear(encoded: &mut [Vec<f32>]) {
+    // Decode in place to avoid a second full-resolution copy.
+    for rgb in encoded {
         for value in rgb.iter_mut() {
             *value = srgb_decode(*value);
         }
     }
-    let views: Vec<&[f32]> = encoded.iter().map(Vec::as_slice).collect();
+}
+
+fn output_frame(source: &Frame, rgb: &[f32]) -> Frame {
+    let mut output = source.clone();
+    output.rgb = rgb
+        .iter()
+        .map(|&value| (value.clamp(0.0, 1.0) * 65535.0).round() as u16)
+        .collect();
+    output
+}
+
+fn pmax_frame(cli: &Cli, frames: &[Frame], reference: usize) -> Frame {
+    let mut inputs = focus_inputs(cli, frames, reference);
+    let confidence = ConfidenceMap::compute(
+        &inputs.aggregates,
+        &inputs.guide,
+        inputs.width,
+        inputs.height,
+        &inputs.calibrations,
+        Some(&inputs.saturation),
+        ConfidenceOptions::default(),
+    );
+
+    decode_linear(&mut inputs.encoded);
+    let views: Vec<&[f32]> = inputs.encoded.iter().map(Vec::as_slice).collect();
     let blended = pmax::stack(
         &views,
-        width,
-        height,
-        &energies,
+        inputs.width,
+        inputs.height,
+        &inputs.energies,
         &confidence,
         WeightOptions {
             beta: cli.pmax_beta,
         },
     );
 
-    let mut output = reference_frame.clone();
-    output.rgb = blended
-        .iter()
-        .map(|&value| (value.clamp(0.0, 1.0) * 65535.0).round() as u16)
-        .collect();
-    output
+    output_frame(&frames[reference], &blended)
+}
+
+fn dmap_frame(cli: &Cli, frames: &[Frame], reference: usize) -> (Frame, DepthField) {
+    let mut inputs = focus_inputs(cli, frames, reference);
+    let volume = CostVolume::new(&inputs.aggregates, inputs.width, inputs.height);
+    let noise_sigma = inputs
+        .calibrations
+        .get(reference)
+        .map_or(SIGMA_EPSILON, |calibration| calibration.sigma);
+    let smoothing_radius = cli
+        .estimation_radius
+        .map_or(dmap::DEFAULT_SMOOTHING_RADIUS, |radius| 0.5 * radius as f32);
+
+    decode_linear(&mut inputs.encoded);
+    let views: Vec<&[f32]> = inputs.encoded.iter().map(Vec::as_slice).collect();
+    let result = dmap::stack_dmap(
+        &views,
+        inputs.width,
+        inputs.height,
+        &volume,
+        &inputs.guide,
+        DmapOptions {
+            lambda: cli.dmap_lambda,
+            keep_detail: cli.keep_detail,
+            noise_sigma,
+            smoothing_radius,
+            interpolation: InterpolationOptions::default(),
+        },
+    );
+
+    (
+        output_frame(&frames[reference], &result.rgb),
+        result.solved.field,
+    )
 }
 
 fn compression(value: Compression) -> tiff_write::Compression {
@@ -334,6 +442,10 @@ impl Progress {
         if self.enabled {
             let _ = writeln!(io::stderr(), "focus-stack: {message}");
         }
+    }
+
+    fn warn(message: fmt::Arguments<'_>) {
+        let _ = writeln!(io::stderr(), "focus-stack: warning: {message}");
     }
 }
 

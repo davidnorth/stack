@@ -185,3 +185,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 5 new solve tests, 1 ignored); flat unconfident bands smooth to <0.75-frame steps; guide ridge holds a >2.5-frame jump while a flat guide blends; convergence below 1e-3; `cargo test --release --test stack_dmap_solve -- --ignored` (24 MP in 1.01 s, gate 2 s)
 - Decisions: `solve_depth` takes a caller-supplied guide luma and operates on `InitialDepth::field`; edge weights use a 1024-entry linear-interpolated exp LUT over [0,16]; pyramid is 1/8→1/4→1/1 with confidence-weighted depth downsampling; Huber is a clamped neighbour difference inside the Jacobi step; post-smooth is skipped when every pixel is confident, then positive-confidence pixels are re-anchored to `d0`
 - Follow-ups: S4.4 supplies the real luma guide and consumes `SolvedDepth`; pipeline wiring remains with S4.4
+
+## S4.4 — 2026-11-07
+
+- Scope: depth interpolation blend, edge-aware hard selection, 16-bit `--depth-map` writer, `--method dmap` end to end
+- Changed: `src/stack/dmap.rs`, `src/output/depth.rs`, `src/pipeline.rs`, `tests/output_depth.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 6 new depth/output tests); synthetic ridge shows two rising edges from the naive blend and one from the interpolation; depth map decodes to the original frame positions; CLI `--method dmap --depth-map` writes readable 16-bit RGB + grayscale TIFFs
+- Decisions: low frequencies come from the `i0`/`i1` blend, high frequencies from the sharper bracketing frame; when the bracket luma gap exceeds 0.08 and confidence >= 0.5 the global argmax frame supplies the high frequencies; depth encodes as `round(d/(N-1)*65535)` with LZW grayscale and the documented `ImageDescription`, no ICC; single-frame maps are all zeros and warn; `--source-map` remains an alias; `--depth-map` with a non-DMap method solves the DMap depth solely to write the map
+- Follow-ups: auto/hybrid method selection and the full JSON report remain with S5/S6

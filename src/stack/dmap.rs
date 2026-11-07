@@ -430,6 +430,236 @@ pub struct SolvedDepth {
     pub converged: bool,
 }
 
+/// Default low/high split radius for the §3.4 interpolation blend, in pixels.
+pub const INTERPOLATION_BLUR_RADIUS: f32 = 8.0;
+/// Luma gap above which the two bracketing frames may show different occluders.
+pub const HARD_SELECTION_LUMA_GAP: f32 = 0.08;
+/// Confidence at or above which the §3.4 hard selection applies.
+pub const HARD_SELECTION_CONFIDENCE: f32 = 0.5;
+
+/// Options for the depth interpolation blend from `docs/stacking.md` §3.4.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InterpolationOptions {
+    /// Gaussian radius separating low and high frequencies.
+    pub blur_radius: f32,
+    /// Luma gap at which interpolation switches to a hard source frame.
+    pub edge_threshold: f32,
+    /// Minimum confidence for hard selection.
+    pub hard_confidence: f32,
+}
+
+impl Default for InterpolationOptions {
+    fn default() -> Self {
+        Self {
+            blur_radius: INTERPOLATION_BLUR_RADIUS,
+            edge_threshold: HARD_SELECTION_LUMA_GAP,
+            hard_confidence: HARD_SELECTION_CONFIDENCE,
+        }
+    }
+}
+
+/// Options for the full DMap stack from `docs/stacking.md` §3.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DmapOptions {
+    /// Smoothness weight `lambda` in the edge-aware solve.
+    pub lambda: f32,
+    /// `--keep-detail PERCENT` override for the contrast threshold.
+    pub keep_detail: Option<f32>,
+    /// Aggregated noise standard deviation from the focus module.
+    pub noise_sigma: f32,
+    /// Post-solve Gaussian radius in pixels.
+    pub smoothing_radius: f32,
+    /// Interpolation blend options.
+    pub interpolation: InterpolationOptions,
+}
+
+impl Default for DmapOptions {
+    fn default() -> Self {
+        Self {
+            lambda: DEFAULT_LAMBDA,
+            keep_detail: None,
+            noise_sigma: SIGMA_EPSILON,
+            smoothing_radius: DEFAULT_SMOOTHING_RADIUS,
+            interpolation: InterpolationOptions::default(),
+        }
+    }
+}
+
+/// DMap output: interpolated linear RGB, solved depth, and threshold report.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DmapResult {
+    /// Interpolated linear RGB, interleaved, length `width * height * 3`.
+    pub rgb: Vec<f32>,
+    /// Solved continuous depth field.
+    pub solved: SolvedDepth,
+    /// Threshold and coverage statistics from §3.2.
+    pub threshold: ContrastThreshold,
+}
+
+/// Run the DMap engine from `docs/stacking.md` §3.
+///
+/// This is the §3.1–§3.4 pipeline: initial argmax depth, automatic threshold,
+/// edge-aware solve, and the low/high interpolation blend. `frames` are linear
+/// RGB, `guide` is the encoded luma used for the edge-aware weights, and
+/// `volume` holds the aggregated focus energies.
+///
+/// # Panics
+///
+/// Panics if dimensions are zero or the frame, guide, or depth buffers have
+/// the wrong length.
+#[must_use]
+pub fn stack_dmap(
+    frames: &[&[f32]],
+    width: u32,
+    height: u32,
+    volume: &CostVolume,
+    guide: &[f32],
+    options: DmapOptions,
+) -> DmapResult {
+    let (initial, threshold) = threshold_depth(
+        volume,
+        ThresholdOptions {
+            noise_sigma: options.noise_sigma,
+            keep_detail: options.keep_detail,
+        },
+    );
+    let solved = solve_depth(
+        &initial,
+        guide,
+        width,
+        height,
+        SolveOptions {
+            lambda: options.lambda,
+            smoothing_radius: options.smoothing_radius,
+            ..SolveOptions::default()
+        },
+    );
+    let rgb = interpolate_frames(
+        frames,
+        width,
+        height,
+        &solved.field,
+        volume,
+        options.interpolation,
+    );
+
+    DmapResult {
+        rgb,
+        solved,
+        threshold,
+    }
+}
+
+/// Interpolate the bracketing frames at a continuous depth from §3.4.
+///
+/// Low frequencies come from the linear blend of frames `i0` and `i1`. High
+/// frequencies come from the sharper bracketing frame so the two occluders are
+/// never mixed. When the bracketing luma gap exceeds
+/// [`InterpolationOptions::edge_threshold`] and confidence is high, the global
+/// `argmax_i E_i` frame supplies the high frequencies instead.
+///
+/// # Panics
+///
+/// Panics if dimensions are zero, no frames are supplied, or any buffer has
+/// the wrong length.
+#[must_use]
+pub fn interpolate_frames(
+    frames: &[&[f32]],
+    width: u32,
+    height: u32,
+    depth: &DepthField,
+    volume: &CostVolume,
+    options: InterpolationOptions,
+) -> Vec<f32> {
+    assert!(width > 0 && height > 0, "image dimensions must be non-zero");
+    assert!(!frames.is_empty(), "at least one frame is required");
+    let count = (width as usize) * (height as usize);
+    assert_eq!(volume.frames, frames.len(), "frame count mismatch");
+    assert_eq!(volume.len(), count, "volume buffer length mismatch");
+    assert_eq!(depth.d.len(), count, "depth buffer length mismatch");
+    assert_eq!(
+        depth.confidence.len(),
+        count,
+        "confidence buffer length mismatch"
+    );
+    for frame in frames {
+        assert_eq!(frame.len(), count * 3, "frame buffer length mismatch");
+    }
+
+    let options = sanitize_interpolation_options(options);
+    let last = (frames.len() - 1) as f32;
+    let mut chosen = vec![0usize; count];
+
+    for (pixel, slot) in chosen.iter_mut().enumerate() {
+        let d = sanitize_depth(depth.d[pixel]).min(last);
+        let i0 = (d.floor() as usize).min(frames.len() - 1);
+        let i1 = (i0 + 1).min(frames.len() - 1);
+        let mut source = if i0 == i1 || volume.energy(i0, pixel) >= volume.energy(i1, pixel) {
+            i0
+        } else {
+            i1
+        };
+
+        let gap = if i0 == i1 {
+            0.0
+        } else {
+            (linear_luma(frames[i0], pixel) - linear_luma(frames[i1], pixel)).abs()
+        };
+        if gap > options.edge_threshold
+            && sanitize_confidence(depth.confidence[pixel]) >= options.hard_confidence
+        {
+            source = volume.argmax(pixel).0 as usize;
+        }
+        *slot = source.min(frames.len() - 1);
+    }
+
+    let mut out = vec![0.0f32; count * 3];
+    for channel in 0..3 {
+        let mut low = vec![0.0f32; count];
+        for pixel in 0..count {
+            let d = sanitize_depth(depth.d[pixel]).min(last);
+            let i0 = (d.floor() as usize).min(frames.len() - 1);
+            let i1 = (i0 + 1).min(frames.len() - 1);
+            let fraction = if i0 == i1 { 0.0 } else { d - i0 as f32 };
+            let first = frames[i0][pixel * 3 + channel];
+            let second = frames[i1][pixel * 3 + channel];
+            low[pixel] = first + (second - first) * fraction;
+        }
+
+        let mut blended =
+            gaussian_smooth(&low, width as usize, height as usize, options.blur_radius);
+        for (frame_index, frame) in frames.iter().enumerate() {
+            let plane: Vec<f32> = (0..count).map(|pixel| frame[pixel * 3 + channel]).collect();
+            let blurred =
+                gaussian_smooth(&plane, width as usize, height as usize, options.blur_radius);
+            for pixel in 0..count {
+                if chosen[pixel] == frame_index {
+                    blended[pixel] += plane[pixel] - blurred[pixel];
+                }
+            }
+        }
+
+        for pixel in 0..count {
+            out[pixel * 3 + channel] = blended[pixel];
+        }
+    }
+
+    out
+}
+
+fn linear_luma(frame: &[f32], pixel: usize) -> f32 {
+    let base = pixel * 3;
+    0.2126 * frame[base] + 0.7152 * frame[base + 1] + 0.0722 * frame[base + 2]
+}
+
+fn sanitize_interpolation_options(options: InterpolationOptions) -> InterpolationOptions {
+    InterpolationOptions {
+        blur_radius: sanitize_non_negative(options.blur_radius),
+        edge_threshold: sanitize_non_negative(options.edge_threshold),
+        hard_confidence: sanitize_confidence(options.hard_confidence),
+    }
+}
+
 #[derive(Debug, Clone)]
 struct SolveLevel {
     width: usize,

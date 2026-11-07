@@ -215,7 +215,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/stack/dmap.rs`, `tests/stack_dmap_solve.rs`.
   - Done: smooth depth in flat areas, sharp at edges; convergence test; 24 MP solve < 2 s.
 
-- [ ] **S4.4 Depth interpolation blend and map output**
+- [x] **S4.4 Depth interpolation blend and map output**
   - Scope: interpolate bracketing frames, edge-aware hard selection, `--depth-map` writer, `--method dmap`.
   - Read: `docs/stacking.md` §3.4; `docs/outputs.md` §2.
   - Touch: `src/stack/dmap.rs`, `src/output/depth.rs`, `tests/output_depth.rs`.
