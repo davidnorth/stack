@@ -125,7 +125,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/align/phase.rs`, `tests/align_phase.rs`.
   - Done: recovers known integer and 0.25 px shifts within 0.05 px.
 
-- [ ] **S1.3 Fourier–Mellin rotation and scale**
+- [x] **S1.3 Fourier–Mellin rotation and scale**
   - Scope: high-pass magnitude spectrum, log-polar transform, phase correlation, 180° disambiguation, range clamps.
   - Read: `docs/alignment.md` §4.
   - Touch: `src/align/logpolar.rs`, `tests/align_logpolar.rs`.

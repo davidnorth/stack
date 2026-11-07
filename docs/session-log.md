@@ -80,3 +80,11 @@ Format:
 - Decisions: self-contained radix-2 FFT (no new dependency); axes zero-padded to the next power of two; cross-power normalisation uses a 1e-6 relative floor, because f32 rounding noise otherwise dominates near-zero bins; subpixel estimate is peak / second peak outside the 5×5 neighbourhood; Guizar-Sicairos upsampled DFT deferred (parabolic fit met the gate); `fft2d`/`Complex` are `pub(crate)` for S1.3 reuse
 - Follow-ups: S1.3 can reuse the crate-visible 2D FFT; coarse-to-fine level selection and `AlignmentLevel` wiring remain for S1.4/S1.6
 
+## S1.3 — 2026-11-07
+
+- Scope: Fourier–Mellin rotation and scale — high-pass log magnitude, log-polar transform, phase correlation, 180° disambiguation, range clamps
+- Changed: `src/align/logpolar.rs`, `tests/align_logpolar.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (45 unit + 68 integration passed); `cargo test --test align_logpolar` (3 passed) recovers ±2° and ±1.5% scale within 0.1°/0.1%, clamps out-of-range estimates, and accepts non-power-of-two sample counts
+- Decisions: reuse the crate-visible radix-2 FFT; apply a radial Hann window before the high-pass so the window's low-frequency lobe is removed and rotation equivariance is preserved; start log-polar sampling at 7% of the FFT half-size to skip the high-pass transition; resolve the 180° ambiguity by normalized correlation of both candidate warps; clamp scale/rotation to §1 defaults with explicit flags
+- Follow-ups: FM confidence is dominated by the 180° twin peak, so S1.4 should use its own final correlation for the low-confidence identity fallback
+
