@@ -169,3 +169,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 5 new cost/argmax tests); synthetic three-band depth recovered exactly at ≥95% of pixels and within one frame everywhere; tied energies and zero confidence flag flat
 - Decisions: `CostVolume` stores frame-major aggregated energies (larger = stronger focus) with `Emax - E` exposed as the derived cost; `argmax_depth` selects `d0 = argmax_i E_i` with lowest-index tie-breaking and carries optional `ConfidenceMap` values into `DepthField::confidence`; flat is `Emax <= eps`, relative best-vs-second margin <= `FLAT_MARGIN`, or confidence zero; non-finite energies/confidence sanitize to zero; automatic threshold remains S4.2
 - Follow-ups: S4.2 supplies the Otsu/noise-floor confidence ramp and threshold reporting; S4.3 uses `d0` and the flat mask in the edge-aware solve
+
+## S4.2 — 2026-11-07
+
+- Scope: automatic DMap contrast threshold from the log-energy histogram and focus noise floor, `--keep-detail` quantile override, confidence ramp, threshold reporting
+- Changed: `src/stack/dmap.rs`, `tests/stack_dmap_threshold.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 5 new threshold tests); synthetic sky/texture split keeps sky confidence at 0 and texture > 0.30; normalized threshold within 5% across three scaled fixture stacks; noise floor and cap bounds verified
+- Decisions: `ContrastThreshold` reports `threshold`, Otsu value, `k*sigma^2` floor, `0.1*p99` cap, override percent, confident percentage, and coverage percentage; Otsu runs over a 256-bin `log(Emax+eps)` histogram; automatic `t = min(max(otsu, floor), cap)`, while `--keep-detail` uses the `(1-PERCENT)` quantile capped the same way; the ramp is `smoothstep(t, 1.5*t, Emax) * margin` and zeroes confidence below `t`; coverage uses the focus module's `4*sigma^2` floor
+- Follow-ups: pipeline `--method dmap` wiring and the JSON report object remain with S4.4/S6.1; `--keep-detail` is parsed by the CLI but reaches DMap once the engine is wired

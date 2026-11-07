@@ -1,6 +1,8 @@
 //! Cost volume, depth solve, and interpolation.
 
 use crate::DepthField;
+use crate::focus::coverage::COVERAGE_TAU;
+use crate::focus::noise::{DEFAULT_NOISE_K, SIGMA_EPSILON};
 
 /// Additive epsilon for energy normalizations.
 pub const COST_EPSILON: f32 = 1.0e-6;
@@ -10,6 +12,15 @@ pub const COST_EPSILON: f32 = 1.0e-6;
 /// The automatic contrast threshold in `docs/stacking.md` §3.2 refines this
 /// gate; §3.1 only needs to identify clearly tied pixels.
 pub const FLAT_MARGIN: f32 = 1.0e-3;
+
+/// The threshold is capped at this fraction of the 99th percentile of `Emax`.
+pub const THRESHOLD_CAP_FRACTION: f32 = 0.10;
+
+/// Upper edge of the confidence ramp as a multiple of the threshold (`1.5*t`).
+pub const CONFIDENCE_RAMP_END: f32 = 1.5;
+
+/// Number of bins in the Otsu histogram over `log(Emax + eps)`.
+pub const OTSU_BINS: usize = 256;
 
 /// Per-pixel, per-frame focus evidence.
 ///
@@ -151,6 +162,149 @@ pub struct InitialDepth {
     pub flat: Vec<bool>,
 }
 
+/// Options for the automatic contrast threshold from `docs/stacking.md` §3.2.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ThresholdOptions {
+    /// Aggregated noise standard deviation `sigma` from the focus module.
+    ///
+    /// The threshold uses the floor `k * sigma^2` with the focus module's
+    /// default `k`.
+    pub noise_sigma: f32,
+    /// `--keep-detail PERCENT` override, in percent.
+    ///
+    /// When present, the threshold is the `(1 - PERCENT)` quantile of `Emax`
+    /// instead of `max(k * sigma^2, otsu)`.
+    pub keep_detail: Option<f32>,
+}
+
+impl Default for ThresholdOptions {
+    fn default() -> Self {
+        Self {
+            noise_sigma: SIGMA_EPSILON,
+            keep_detail: None,
+        }
+    }
+}
+
+/// Chosen DMap contrast threshold and the statistics the report needs.
+///
+/// The value is `t` from `docs/stacking.md` §3.2. Apply it to an
+/// [`InitialDepth`] with [`ContrastThreshold::apply_confidence`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ContrastThreshold {
+    /// Final threshold `t` applied to `Emax`.
+    pub threshold: f32,
+    /// Otsu split of `log(Emax + eps)` before the noise floor and cap.
+    pub otsu: f32,
+    /// Noise floor `k * sigma^2` supplied by the focus module.
+    pub noise_floor: f32,
+    /// Cap `0.1 * p99(Emax)`.
+    pub cap: f32,
+    /// `--keep-detail` percentage when the override was used.
+    pub keep_detail: Option<f32>,
+    /// Pixels with positive ramped confidence, in percent.
+    pub confident_pct: f32,
+    /// Pixels covered by at least one frame, in percent.
+    pub coverage_pct: f32,
+}
+
+impl ContrastThreshold {
+    /// Compute the automatic threshold for `volume`.
+    #[must_use]
+    pub fn compute(volume: &CostVolume, options: ThresholdOptions) -> Self {
+        let initial = argmax_depth(volume, None);
+        Self::from_initial(&initial, options)
+    }
+
+    /// Compute the threshold from an existing argmax result.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the best-energy and margin buffers disagree in length.
+    #[must_use]
+    pub fn from_initial(initial: &InitialDepth, options: ThresholdOptions) -> Self {
+        let count = initial.best_energy.len();
+        assert_eq!(initial.margin.len(), count, "margin buffer length mismatch");
+
+        let sigma = sanitize_sigma(options.noise_sigma);
+        let noise_floor = DEFAULT_NOISE_K * sigma * sigma;
+        let cap = THRESHOLD_CAP_FRACTION * quantile(&initial.best_energy, 0.99);
+        let otsu = otsu_threshold(&initial.best_energy);
+        let keep_detail = sanitize_keep_detail(options.keep_detail);
+
+        let candidate = match keep_detail {
+            Some(percent) => quantile(&initial.best_energy, 1.0 - percent / 100.0),
+            None => otsu.max(noise_floor),
+        };
+        let threshold = sanitize_non_negative(candidate.min(cap));
+
+        let coverage_floor = COVERAGE_TAU * sigma * sigma;
+        let mut confident = 0usize;
+        let mut covered = 0usize;
+        for index in 0..count {
+            let ramp = ramp(threshold, initial.best_energy[index]);
+            if ramp * initial.margin[index] > 0.0 {
+                confident += 1;
+            }
+            if initial.best_energy[index] >= coverage_floor {
+                covered += 1;
+            }
+        }
+
+        Self {
+            threshold,
+            otsu,
+            noise_floor,
+            cap,
+            keep_detail,
+            confident_pct: percentage(confident, count),
+            coverage_pct: percentage(covered, count),
+        }
+    }
+
+    /// Replace `initial`'s confidence with the §3.2 ramp and update flat flags.
+    ///
+    /// The ramp is `smoothstep(t, 1.5*t, Emax) * margin_confidence`. Pixels
+    /// below the threshold get `c = 0` so the depth solve can fill them from
+    /// trustworthy neighbours instead of assigning noise.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the best-energy, margin, and confidence buffers disagree in
+    /// length.
+    pub fn apply_confidence(&self, initial: &mut InitialDepth) {
+        let count = initial.best_energy.len();
+        assert_eq!(initial.margin.len(), count, "margin buffer length mismatch");
+        assert_eq!(
+            initial.field.confidence.len(),
+            count,
+            "confidence buffer length mismatch"
+        );
+
+        for index in 0..count {
+            let confidence =
+                ramp(self.threshold, initial.best_energy[index]) * initial.margin[index];
+            initial.field.confidence[index] = confidence;
+            initial.flat[index] |= confidence <= 0.0;
+        }
+    }
+}
+
+/// Compute `d0 = argmax_i E_i`, apply the automatic contrast threshold, and
+/// return the depth together with the threshold report.
+///
+/// This is the `docs/stacking.md` §3.2 entry point for the DMap solve.
+#[must_use]
+pub fn threshold_depth(
+    volume: &CostVolume,
+    options: ThresholdOptions,
+) -> (InitialDepth, ContrastThreshold) {
+    let mut initial = argmax_depth(volume, None);
+    let threshold = ContrastThreshold::from_initial(&initial, options);
+    threshold.apply_confidence(&mut initial);
+    (initial, threshold)
+}
+
 /// Compute `d0 = argmax_i E_i` and flag flat regions.
 ///
 /// `confidence`, when present, is the per-pixel confidence from
@@ -200,6 +354,129 @@ pub fn argmax_depth(volume: &CostVolume, confidence: Option<&[f32]>) -> InitialD
         best_energy,
         margin: margin_out,
         flat,
+    }
+}
+
+/// Otsu split of the log-energy histogram from §3.2 step 3.
+///
+/// The logarithm compresses the long energy tail so the split tracks texture
+/// versus flat regions rather than a fixed percentage of pixels.
+fn otsu_threshold(values: &[f32]) -> f32 {
+    if values.is_empty() {
+        return 0.0;
+    }
+
+    let mut min_log = f32::INFINITY;
+    let mut max_log = f32::NEG_INFINITY;
+    for &value in values {
+        let log = (sanitize_energy(value) + COST_EPSILON).ln();
+        min_log = min_log.min(log);
+        max_log = max_log.max(log);
+    }
+
+    let span = max_log - min_log;
+    if !span.is_finite() || span <= f32::EPSILON {
+        return values
+            .iter()
+            .copied()
+            .fold(0.0f32, |maximum, value| maximum.max(sanitize_energy(value)));
+    }
+
+    let mut histogram = [0u64; OTSU_BINS];
+    let scale = (OTSU_BINS - 1) as f32 / span;
+    for &value in values {
+        let log = (sanitize_energy(value) + COST_EPSILON).ln();
+        let bin = (((log - min_log) * scale).round() as usize).min(OTSU_BINS - 1);
+        histogram[bin] += 1;
+    }
+
+    let total = values.len() as f64;
+    let mut sum_all = 0.0f64;
+    for (bin, &count) in histogram.iter().enumerate() {
+        sum_all += bin as f64 * count as f64;
+    }
+
+    let mut best_variance = f64::NEG_INFINITY;
+    let mut best_bin = 0usize;
+    let mut weight_back = 0.0f64;
+    let mut sum_back = 0.0f64;
+    for (bin, &count) in histogram.iter().enumerate().take(OTSU_BINS - 1) {
+        weight_back += count as f64;
+        sum_back += bin as f64 * count as f64;
+        if weight_back <= 0.0 {
+            continue;
+        }
+        let weight_fore = total - weight_back;
+        if weight_fore <= 0.0 {
+            break;
+        }
+        let mean_back = sum_back / weight_back;
+        let mean_fore = (sum_all - sum_back) / weight_fore;
+        let variance = weight_back * weight_fore * (mean_back - mean_fore).powi(2);
+        if variance > best_variance {
+            best_variance = variance;
+            best_bin = bin;
+        }
+    }
+
+    let step = span / (OTSU_BINS - 1) as f32;
+    let log_threshold = min_log + (best_bin as f32 + 0.5) * step;
+    sanitize_non_negative(log_threshold.exp() - COST_EPSILON)
+}
+
+/// Nearest-rank quantile of `values`, with the rank interpolated at the edges.
+fn quantile(values: &[f32], fraction: f32) -> f32 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mut sorted = values.to_vec();
+    let rank = ((sorted.len() - 1) as f32 * fraction.clamp(0.0, 1.0)).round() as usize;
+    *sorted.select_nth_unstable_by(rank, f32::total_cmp).1
+}
+
+/// `smoothstep(t, 1.5*t, energy)` from §3.2 step 5.
+fn ramp(threshold: f32, energy: f32) -> f32 {
+    if threshold <= COST_EPSILON {
+        return if energy > COST_EPSILON { 1.0 } else { 0.0 };
+    }
+    let high = threshold * CONFIDENCE_RAMP_END;
+    if energy <= threshold {
+        return 0.0;
+    }
+    if energy >= high {
+        return 1.0;
+    }
+    let t = (energy - threshold) / (high - threshold);
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn percentage(count: usize, total: usize) -> f32 {
+    if total == 0 {
+        0.0
+    } else {
+        100.0 * count as f32 / total as f32
+    }
+}
+
+fn sanitize_sigma(value: f32) -> f32 {
+    if value.is_finite() {
+        value.abs().max(SIGMA_EPSILON)
+    } else {
+        SIGMA_EPSILON
+    }
+}
+
+fn sanitize_keep_detail(value: Option<f32>) -> Option<f32> {
+    value
+        .filter(|percent| percent.is_finite())
+        .map(|percent| percent.clamp(0.0, 100.0))
+}
+
+fn sanitize_non_negative(value: f32) -> f32 {
+    if value.is_finite() {
+        value.max(0.0)
+    } else {
+        0.0
     }
 }
 

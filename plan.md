@@ -203,7 +203,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/stack/dmap.rs`, `tests/stack_dmap_cost.rs`.
   - Done: argmax matches synthetic depth within one frame; flat regions flagged.
 
-- [ ] **S4.2 Automatic contrast threshold**
+- [x] **S4.2 Automatic contrast threshold**
   - Scope: threshold from histogram + noise floor, `--keep-detail` override, confidence ramp, reporting.
   - Read: `docs/stacking.md` §3.2.
   - Touch: `src/stack/dmap.rs`, `tests/stack_dmap_threshold.rs`.
