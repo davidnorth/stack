@@ -97,7 +97,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/color/*.rs`, `tests/color.rs`.
   - Done: sRGB round-trip within 1e-6; luma matches reference; unknown-profile behavior and `--assume-profile` tested.
 
-- [ ] **S0.5 CLI skeleton and pipeline stub**
+- [x] **S0.5 CLI skeleton and pipeline stub**
   - Scope: clap definitions, input validation (matching dimensions/depth), load→copy→write pipeline, progress, exit codes, `--report` stub.
   - Read: `docs/cli.md` §1–3, §5.
   - Touch: `src/cli.rs`, `src/pipeline.rs`, `src/main.rs`, `tests/cli.rs`.

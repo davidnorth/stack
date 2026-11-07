@@ -47,3 +47,11 @@ Format:
 - Evidence: `cargo fmt --all --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (21 unit + 32 integration passed; 15 color tests); sRGB decode→encode within 1e-6; luma matches the 0.2126/0.7152/0.0722 reference; known/unknown/absent profiles, `--assume-profile`, explicit output profile, and ICC-byte preservation covered
 - Decisions: bundled `lcms2` static build (D012); detection by ICC description with colorant/TRC fallback; sRGB and linear sRGB use the exact internal transfer functions, wide-gamut uses lcms2 relative colorimetric; an absent profile assumes sRGB and exposes a warning per `docs/io-and-color.md` §6 (D012's stricter absent-profile wording is inconsistent and should be reconciled); unknown profiles error unless assumed; output preserves the input ICC bytes unless an explicit output profile is supplied
 - Follow-ups: S0.5 must wire `--assume-profile` / `--output-profile` file paths into `ColorPipeline`; clipping accounting and `--output-profile same` CLI plumbing belong there; ICC fixtures for Adobe RGB/ProPhoto/P3 are generated in tests rather than committed
+
+## S0.5 — 2026-11-07
+
+- Scope: CLI skeleton and load→copy→write pipeline stub
+- Changed: `Cargo.toml`, `Cargo.lock`, `src/cli.rs`, `src/pipeline.rs`, `src/main.rs`, `tests/cli.rs`
+- Evidence: `cargo fmt --all --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (27 unit + 44 integration passed; 12 new CLI tests); identity/multi-input runs produce readable TIFFs; missing/corrupt/mismatched inputs exit 3; usage errors exit 2
+- Decisions: clap derive for the documented option set; stub validates equal dimensions and bit depth, then copies the selected reference frame; `--reference auto` selects index 0 until gradient selection lands; report is a deterministic minimal JSON stub; progress is written to stderr only on a terminal or with `-v`
+- Follow-ups: `--depth-map`/`--source-map`/`--preview` are parsed but not written yet; `--assume-profile`/`--output-profile` still need `ColorPipeline` wiring; retouch/eval subcommands land in S6.3/S7

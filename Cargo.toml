@@ -10,6 +10,7 @@ keywords = ["photography", "focus-stacking", "tiff", "image-processing"]
 categories = ["multimedia::images", "command-line-utilities"]
 
 [dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
 lcms2 = { version = "6.1.1", features = ["static"] }
 tiff = { version = "0.11.3", default-features = false, features = ["deflate", "lzw"] }
 
