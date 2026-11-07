@@ -138,11 +138,16 @@ focus-stack retouch \
 Development command for the quality harness:
 
 ```text
-focus-stack eval --truth <TIFF> --test <TIFF> [--json]
+focus-stack eval --truth <TIFF> --test <TIFF> \
+  [--depth <TIFF>] [--input <TIFF>...] [--json]
 ```
 
 Prints PSNR, SSIM, detail recovery, halo overshoot, noise gain, and ΔE00.
-Not part of the user-facing workflow.
+`--depth` supplies the relative depth map used to locate halo edges; without
+it, strong luma edges in the truth image are used. `--input` frames supply the
+noise-gain denominator (sharpest frame selected automatically); without them
+noise gain is reported as `n/a`. `--json` prints the metrics as JSON instead of
+a table. Not part of the user-facing workflow.
 
 ### Deferred
 

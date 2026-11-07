@@ -148,6 +148,28 @@ pub struct Cli {
 pub enum Command {
     /// Recompose a stacked output from a JSON mask and run report.
     Retouch(RetouchArgs),
+    /// Measure a test image against linear-light ground truth.
+    Eval(EvalArgs),
+}
+
+/// Arguments for `focus-stack eval`.
+#[derive(Debug, Clone, Args)]
+pub struct EvalArgs {
+    /// Linear-light ground-truth TIFF.
+    #[arg(long, value_name = "TIFF")]
+    pub truth: PathBuf,
+    /// Test TIFF to measure.
+    #[arg(long, value_name = "TIFF")]
+    pub test: PathBuf,
+    /// Relative depth map used to locate depth edges for halo overshoot.
+    #[arg(long, value_name = "TIFF")]
+    pub depth: Option<PathBuf>,
+    /// Input frames; the sharpest supplies the noise-gain denominator.
+    #[arg(long, value_name = "TIFF")]
+    pub input: Vec<PathBuf>,
+    /// Emit the metrics as JSON instead of a table.
+    #[arg(long)]
+    pub json: bool,
 }
 
 /// Arguments for `focus-stack retouch`.

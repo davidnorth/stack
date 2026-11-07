@@ -281,7 +281,7 @@ the same stacks as tuning and validation sets.
 
 ## S7 — Validation and performance (2–3 days)
 
-- [ ] **S7.1 Metrics**
+- [x] **S7.1 Metrics**
   - Scope: PSNR, SSIM, detail recovery, halo overshoot, noise gain, ΔE00; `focus-stack eval` for fixtures.
   - Read: `docs/quality.md` §3.
   - Touch: `src/quality/metrics.rs`, `tests/metrics.rs`.

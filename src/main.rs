@@ -19,6 +19,8 @@ fn main() -> ExitCode {
         match &cli.command {
             Some(Command::Retouch(args)) => focus_stack::retouch::run(args)
                 .map_err(|error| (error.to_string(), error.exit_code())),
+            Some(Command::Eval(args)) => focus_stack::quality::metrics::run(args)
+                .map_err(|error| (error.to_string(), error.exit_code())),
             None => focus_stack::pipeline::run(&cli)
                 .map_err(|error| (error.to_string(), error.exit_code())),
         };
