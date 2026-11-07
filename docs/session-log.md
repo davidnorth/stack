@@ -289,3 +289,11 @@ Format:
 - Evidence: `cargo fmt --all --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` passes (73 unit + all integration); 20 criterion medians recorded; 24 MP PMax e2e 20.0 s / 2.70 GB RSS; 60 MP PMax e2e 94.7 s / 3.12 GB max RSS / 13.03 GB peak footprint (8-bit input; 137.3 s with `--report`); `check_performance.py` passes and exits 1 at half the limits; nightly/manual CI `bench` job runs the benches and uploads Criterion results
 - Decisions: 60 MP stack benches use two frames to fit the 8 GB host; 60 MP end-to-end used 8-bit input because the TIFF decoder rejects 60 MP RGB16 (256 MiB default decoding buffer); limits are 2× the local medians to absorb runner variation, with the 20 % review policy left to PRs; benchmark images are deterministic in-memory gradients so no large fixtures are committed
 - Follow-ups: raise the TIFF decoding buffer for 60 MP 16-bit inputs (or land S7.5 tiling) and re-measure; wire alignment/focus/hybrid into the pipeline; optimise DMap (64.5 s for 2 × 60 MP), ECC (2.3–2.7 s at 2048 px), and LZW encode (2.2 s at 24 MP) before the §6 targets are reachable
+
+## S7.5 — 2026-11-07
+
+- Scope: banded/tiled PMax blending with overlap for the 60 MP memory budget
+- Changed: `src/stack/tiled.rs`, `tests/tiled.rs`, `src/stack/mod.rs`, `plan.md`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` passes (73 unit + all integration, 4 new tiled tests); tiled output matches `pmax::blend` within one 16-bit LSB for 24×18 and 7×5 tiles, including 2-D overlap; `plan` covers every pixel once; the 4 × 9504 × 6336 estimate is 7,584,758,280 bytes, under the 8 GB budget
+- Decisions: tiles are aligned to `2^(levels-1)` before cropped pyramid reconstruction, so each tile reuses the full-image Laplacian coefficients/weights and the interior is numerically identical; default tiles are full-width 2048-row bands (overlap 64); the module keeps the current full-frame public API and bounds the blend/reconstruction scratch, with `TiledOptions::for_memory_budget` selecting the largest fitting tile
+- Follow-ups: wire the tiled path into `pipeline.rs` when `--max-memory` is tight and stream frame/weight buffers if the full-resolution inputs must also be reduced; a release-mode 4 × 60 MP end-to-end run is still needed to confirm wall time

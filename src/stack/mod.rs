@@ -6,3 +6,4 @@ pub mod dmap;
 pub mod hybrid;
 pub mod method;
 pub mod pmax;
+pub mod tiled;

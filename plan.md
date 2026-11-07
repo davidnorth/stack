@@ -305,7 +305,7 @@ the same stacks as tuning and validation sets.
   - Touch: `benches/*`, `docs/performance.md`.
   - Done: numbers recorded against targets; regressions visible in CI.
 
-- [ ] **S7.5 Tiled path for 60 MP (optional)**
+- [x] **S7.5 Tiled path for 60 MP (optional)**
   - Scope: banded/tiled blending with overlap when `--max-memory` is tight.
   - Read: `docs/architecture.md` §5, §10.
   - Touch: `src/stack/tiled.rs`, `tests/tiled.rs`.
