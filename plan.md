@@ -225,7 +225,7 @@ the same stacks as tuning and validation sets.
 
 ## S5 — Hybrid engine and quality core (3–4 days)
 
-- [ ] **S5.1 Detail transfer**
+- [x] **S5.1 Detail transfer**
   - Scope: guided base of PMax, high-frequency transfer onto DMap, soft clamp, YCbCr variant.
   - Read: `docs/stacking.md` §4.1.
   - Touch: `src/stack/hybrid.rs`, `tests/stack_hybrid.rs`.

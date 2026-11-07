@@ -193,3 +193,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 6 new depth/output tests); synthetic ridge shows two rising edges from the naive blend and one from the interpolation; depth map decodes to the original frame positions; CLI `--method dmap --depth-map` writes readable 16-bit RGB + grayscale TIFFs
 - Decisions: low frequencies come from the `i0`/`i1` blend, high frequencies from the sharper bracketing frame; when the bracket luma gap exceeds 0.08 and confidence >= 0.5 the global argmax frame supplies the high frequencies; depth encodes as `round(d/(N-1)*65535)` with LZW grayscale and the documented `ImageDescription`, no ICC; single-frame maps are all zeros and warn; `--source-map` remains an alias; `--depth-map` with a non-DMap method solves the DMap depth solely to write the map
 - Follow-ups: auto/hybrid method selection and the full JSON report remain with S5/S6
+
+## S5.1 — 2026-11-07
+
+- Scope: guided PMax detail transfer onto DMap, soft clamp, YCbCr recombination
+- Changed: `src/stack/hybrid.rs`, `tests/stack_hybrid.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 6 new hybrid tests); native-resolution synthetic detail recovery inside the 0.95–1.10 gate with the soft DMap baseline below 0.95; added luma bounded by `k*tau`; output chroma matches DMap
+- Decisions: reuse `focus::confidence::guided_filter` for the §4.1 base (`r=24`, `eps=1e-3`); transfer `k*tau*tanh(Dp/tau)` on Rec.709 luma only; carry DMap `Cb=B-Y`/`Cr=R-Y` and clamp final RGB; sanitize `k` to `[0,1]`; chose the guided-base/YCbCr variant, leaving the Laplacian-mask alternative to the S5.2 pyramid path
+- Follow-ups: S5.2 adds low-pass anchoring and overshoot diagnostics; S5.3 wires the hybrid into method selection; pipeline integration was not touched here
