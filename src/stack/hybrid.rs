@@ -17,6 +17,16 @@ pub const DETAIL_CLAMP_TAU: f32 = 0.10;
 pub const GUIDED_BASE_RADIUS: u32 = 24;
 /// Default guided-base regularization (`docs/stacking.md` §4.1).
 pub const GUIDED_BASE_EPSILON: f32 = 1.0e-3;
+/// Confidence at which the §4.3 hybrid mask starts to open.
+pub const MASK_CONFIDENCE_LOW: f32 = 0.10;
+/// Confidence at which the §4.3 hybrid mask is fully open.
+pub const MASK_CONFIDENCE_HIGH: f32 = 0.30;
+/// Texture ramp end as a multiple of the DMap threshold `t` (§4.3).
+pub const MASK_TEXTURE_SCALE: f32 = 2.0;
+/// Guided-filter radius used to align the mask with image edges (§4.3).
+pub const MASK_GUIDED_RADIUS: u32 = 8;
+/// Guided-filter regularization used to align the mask (§4.3).
+pub const MASK_GUIDED_EPSILON: f32 = 1.0e-3;
 /// Coarsest Laplacian levels forced to DMap coefficients (`docs/stacking.md` §4.2).
 pub const HALO_ANCHOR_LEVELS: usize = 2;
 /// Width in pixels of the edge band used by the overshoot check (§4.2).
@@ -51,6 +61,33 @@ impl Default for DetailOptions {
             tau: DETAIL_CLAMP_TAU,
             radius: GUIDED_BASE_RADIUS,
             epsilon: GUIDED_BASE_EPSILON,
+        }
+    }
+}
+
+/// Options for the §4.3 confidence/texture mask.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MaskOptions {
+    /// Confidence at which the mask starts to open.
+    pub confidence_low: f32,
+    /// Confidence at which the confidence ramp reaches one.
+    pub confidence_high: f32,
+    /// Texture ramp end as a multiple of the DMap threshold.
+    pub texture_scale: f32,
+    /// Guided-filter radius used to align the mask with image edges.
+    pub radius: u32,
+    /// Guided-filter regularization.
+    pub epsilon: f32,
+}
+
+impl Default for MaskOptions {
+    fn default() -> Self {
+        Self {
+            confidence_low: MASK_CONFIDENCE_LOW,
+            confidence_high: MASK_CONFIDENCE_HIGH,
+            texture_scale: MASK_TEXTURE_SCALE,
+            radius: MASK_GUIDED_RADIUS,
+            epsilon: MASK_GUIDED_EPSILON,
         }
     }
 }
@@ -172,6 +209,109 @@ pub fn transfer_detail(
         "luma buffer length mismatch"
     );
     let detail = detail_plane(pmax_luma, width, height, options);
+    dmap_luma
+        .iter()
+        .zip(&detail)
+        .map(|(&dmap, &detail)| dmap + detail)
+        .collect()
+}
+
+/// Build the §4.3 hybrid mask from confidence and texture evidence.
+///
+/// The mask is the product of a confidence ramp and a texture ramp:
+///
+/// ```text
+/// m = smoothstep(c_lo, c_hi, c) * smoothstep(t, 2t, Emax)
+/// m = guided_filter(m, guide=Y_D, r=8, eps=1e-3)
+/// ```
+///
+/// `confidence` and `best_energy` come from the DMap threshold pass, `threshold`
+/// is its `t`, and `guide` is DMap luma `Y_D`. The result is in `[0, 1]`; zero
+/// means pure DMap, one means full PMax detail.
+///
+/// # Panics
+///
+/// Panics if dimensions are zero or a buffer has the wrong length.
+#[must_use]
+pub fn hybrid_mask(
+    confidence: &[f32],
+    best_energy: &[f32],
+    guide: &[f32],
+    width: u32,
+    height: u32,
+    threshold: f32,
+    options: MaskOptions,
+) -> Vec<f32> {
+    assert!(width > 0 && height > 0, "image dimensions must be non-zero");
+    let count = (width as usize) * (height as usize);
+    assert_eq!(confidence.len(), count, "confidence buffer length mismatch");
+    assert_eq!(best_energy.len(), count, "energy buffer length mismatch");
+    assert_eq!(guide.len(), count, "guide buffer length mismatch");
+
+    let options = sanitize_mask_options(options);
+    let threshold = sanitize_non_negative(threshold);
+    let texture_end = (threshold * options.texture_scale).max(threshold + 1.0e-6);
+
+    let mut raw = Vec::with_capacity(count);
+    for index in 0..count {
+        let confidence = smoothstep(
+            options.confidence_low,
+            options.confidence_high,
+            confidence[index],
+        );
+        let texture = smoothstep(threshold, texture_end, best_energy[index]);
+        raw.push(confidence * texture);
+    }
+
+    guided_filter(guide, &raw, width, height, options.radius, options.epsilon)
+        .into_iter()
+        .map(|value| value.clamp(0.0, 1.0))
+        .collect()
+}
+
+/// Multiply a detail plane by the §4.3 mask.
+///
+/// # Panics
+///
+/// Panics if the buffers disagree in length.
+#[must_use]
+pub fn mask_detail_plane(detail: &[f32], mask: &[f32]) -> Vec<f32> {
+    assert_eq!(detail.len(), mask.len(), "detail/mask length mismatch");
+    detail
+        .iter()
+        .zip(mask)
+        .map(|(&detail, &mask)| detail * mask.clamp(0.0, 1.0))
+        .collect()
+}
+
+/// Transfer masked PMax detail onto DMap luma.
+///
+/// This is [`transfer_detail`] with the §4.3 mask applied after the soft clamp:
+/// `Y_out = Y_D + m * k * tau * tanh((Y_P - B) / tau)`.
+///
+/// # Panics
+///
+/// Panics if the buffers disagree in length or dimensions are zero.
+#[must_use]
+pub fn transfer_detail_masked(
+    dmap_luma: &[f32],
+    pmax_luma: &[f32],
+    mask: &[f32],
+    width: u32,
+    height: u32,
+    options: DetailOptions,
+) -> Vec<f32> {
+    assert_eq!(
+        dmap_luma.len(),
+        pmax_luma.len(),
+        "luma buffer length mismatch"
+    );
+    assert_eq!(
+        dmap_luma.len(),
+        mask.len(),
+        "luma/mask buffer length mismatch"
+    );
+    let detail = mask_detail_plane(&detail_plane(pmax_luma, width, height, options), mask);
     dmap_luma
         .iter()
         .zip(&detail)
@@ -410,6 +550,44 @@ pub fn stack_hybrid_halo(
     }
 }
 
+/// Run masked detail transfer followed by halo suppression.
+///
+/// This is the §4.1–§4.3 pipeline: the mask limits PMax detail to confident,
+/// textured regions before §4.2 anchors the coarse levels back to DMap.
+///
+/// # Panics
+///
+/// Panics if dimensions are zero or a buffer has the wrong length.
+#[must_use]
+pub fn stack_hybrid_halo_masked(
+    dmap: &[f32],
+    pmax: &[f32],
+    mask: &[f32],
+    width: u32,
+    height: u32,
+    detail: DetailOptions,
+    halo: HaloOptions,
+) -> HybridHalo {
+    assert!(width > 0 && height > 0, "image dimensions must be non-zero");
+    let count = (width as usize) * (height as usize);
+    assert_eq!(dmap.len(), count * 3, "RGB buffer length mismatch");
+    assert_eq!(pmax.len(), count * 3, "RGB buffer length mismatch");
+    assert_eq!(mask.len(), count, "mask buffer length mismatch");
+
+    let (dmap_luma, dmap_cb, dmap_cr) = split_luma_chroma(dmap);
+    let (pmax_luma, _, _) = split_luma_chroma(pmax);
+    let hybrid = transfer_detail_masked(&dmap_luma, &pmax_luma, mask, width, height, detail);
+    let suppressed = suppress_halo(&hybrid, &dmap_luma, width, height, detail, halo);
+    let rgb = recombine_luma_chroma(&suppressed.luma, &dmap_cb, &dmap_cr);
+
+    HybridHalo {
+        rgb,
+        luma: suppressed.luma,
+        overshoot: suppressed.overshoot,
+        k_effective: suppressed.k_effective,
+    }
+}
+
 /// Low-pass anchor for the edge-band clamp.
 fn lowpass_anchor(dmap_luma: &[f32], width: u32, height: u32, radius: u32) -> Vec<f32> {
     guided_filter(
@@ -531,6 +709,35 @@ pub fn stack_hybrid(
     recombine_luma_chroma(&out_luma, &dmap_cb, &dmap_cr)
 }
 
+/// Run the §4.3 masked detail transfer on two linear RGB images.
+///
+/// `mask` is one sample per pixel from [`hybrid_mask`]. DMap supplies luma,
+/// chroma, and tone; PMax detail is added only where the mask is positive.
+///
+/// # Panics
+///
+/// Panics if dimensions are zero or a buffer has the wrong length.
+#[must_use]
+pub fn stack_hybrid_masked(
+    dmap: &[f32],
+    pmax: &[f32],
+    mask: &[f32],
+    width: u32,
+    height: u32,
+    options: DetailOptions,
+) -> Vec<f32> {
+    assert!(width > 0 && height > 0, "image dimensions must be non-zero");
+    let count = (width as usize) * (height as usize);
+    assert_eq!(dmap.len(), count * 3, "RGB buffer length mismatch");
+    assert_eq!(pmax.len(), count * 3, "RGB buffer length mismatch");
+    assert_eq!(mask.len(), count, "mask buffer length mismatch");
+
+    let (dmap_luma, dmap_cb, dmap_cr) = split_luma_chroma(dmap);
+    let (pmax_luma, _, _) = split_luma_chroma(pmax);
+    let out_luma = transfer_detail_masked(&dmap_luma, &pmax_luma, mask, width, height, options);
+    recombine_luma_chroma(&out_luma, &dmap_cb, &dmap_cr)
+}
+
 /// Recombine DMap chroma with a luma plane into interleaved linear RGB.
 fn recombine_luma_chroma(luma: &[f32], cb: &[f32], cr: &[f32]) -> Vec<f32> {
     let mut out = Vec::with_capacity(luma.len() * 3);
@@ -589,5 +796,46 @@ fn sanitize_halo(options: HaloOptions) -> HaloOptions {
             HALO_OVERSHOOT_LIMIT
         },
         anchor_radius: options.anchor_radius.max(1),
+    }
+}
+
+fn sanitize_mask_options(options: MaskOptions) -> MaskOptions {
+    let confidence_low = sanitize_non_negative(options.confidence_low);
+    let confidence_high = if options.confidence_high.is_finite() {
+        options.confidence_high.max(confidence_low)
+    } else {
+        MASK_CONFIDENCE_HIGH.max(confidence_low)
+    };
+    MaskOptions {
+        confidence_low,
+        confidence_high,
+        texture_scale: if options.texture_scale.is_finite() {
+            options.texture_scale.max(1.0)
+        } else {
+            MASK_TEXTURE_SCALE
+        },
+        radius: options.radius,
+        epsilon: if options.epsilon.is_finite() {
+            options.epsilon.max(f32::EPSILON)
+        } else {
+            MASK_GUIDED_EPSILON
+        },
+    }
+}
+
+/// Hermite smoothstep between `edge0` and `edge1`.
+fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
+    if !edge0.is_finite() || !edge1.is_finite() || edge1 <= edge0 {
+        return if value >= edge1 { 1.0 } else { 0.0 };
+    }
+    let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn sanitize_non_negative(value: f32) -> f32 {
+    if value.is_finite() {
+        value.max(0.0)
+    } else {
+        0.0
     }
 }

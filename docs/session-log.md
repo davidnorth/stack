@@ -209,3 +209,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 10 new halo tests); synthetic ridge halo normalized overshoot DMap 0.3750, PMax 0.7500, unsuppressed hybrid 0.3982, suppressed 0.0000, effective k 0.0231
 - Decisions: `pyramid_anchor` reconstructs only the coarsest `anchor_levels` Laplacian bands and `anchor_coarse` swaps those bands from DMap unconditionally; the edge-band clamp soft-limits high frequencies against a box low-pass anchor over a feathered 5 px band; `halo_overshoot` measures values leaving the reference local range, normalised by local contrast and reduced with p99; `stack_hybrid_halo` returns `rgb`, suppressed `luma`, residual `overshoot`, and `k_effective`
 - Follow-ups: S5.3 chooses/smooths the hybrid mask and wires halo suppression into method selection and the pipeline; S5.4 tunes the anchor/limit constants against real stacks
+
+## S5.3 — 2026-11-07
+
+- Scope: confidence/texture hybrid mask with guided smoothing, `auto|pmax|dmap|hybrid` selection, parameter plumbing
+- Changed: `src/stack/hybrid.rs`, `src/stack/method.rs`, `tests/stack_method.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 13 new mask/method tests); mask is 0 on low-confidence/smooth pixels and 1 on confident textured pixels; masked transfer equals DMap where closed and equals unmasked transfer where open; auto selects hybrid at >=0.40 confident and DMap below
+- Decisions: `hybrid_mask` implements `smoothstep(c_lo,c_hi,c) * smoothstep(t,2t,Emax)` then the `r=8, eps=1e-3` guided filter; masked detail is applied after the §4.1 soft clamp and before §4.2 halo suppression; `MethodOptions` carries the auto threshold plus `HybridParameters{detail,halo,mask}`; explicit methods report reason `explicit`, auto reports `textured` or `low-confidence`
+- Follow-ups: core `method::Method` still duplicates `cli::Method`; CLI/pipeline dispatch and JSON report fields remain with S6/S7, and S5.4 tunes mask and auto thresholds

@@ -237,7 +237,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/stack/hybrid.rs`, `tests/stack_halo.rs`.
   - Done: synthetic ridge halo measurably below DMap-alone and PMax-alone.
 
-- [ ] **S5.3 Hybrid mask and method selection**
+- [x] **S5.3 Hybrid mask and method selection**
   - Scope: confidence/texture mask, guided smoothing, `auto|pmax|dmap|hybrid` selection, parameter plumbing.
   - Read: `docs/stacking.md` §4.3–4.4.
   - Touch: `src/stack/hybrid.rs`, `src/stack/method.rs`, `tests/stack_method.rs`.
