@@ -1,0 +1,13 @@
+# Small fast fixture exercising the Gaussian PSF (sigma = c / 1.5).
+width = 64
+height = 64
+frames = 3
+seed = 7
+coc_scale = 1.1
+focus = [0.2, 0.6, 1.7]
+noise_read = 0.001
+noise_shot = 0.0005
+exposure = [1.0, 1.05, 0.95]
+layers = 8
+psf = "gaussian"
+c_max = 4.0

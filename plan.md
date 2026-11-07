@@ -103,7 +103,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/cli.rs`, `src/pipeline.rs`, `src/main.rs`, `tests/cli.rs`.
   - Done: `focus-stack a.tif b.tif -o out.tif` writes a valid TIFF; `--help` complete; bad inputs exit 2/3; mismatched sizes rejected.
 
-- [ ] **S0.6 Synthetic stack generator**
+- [x] **S0.6 Synthetic stack generator**
   - Scope: scene + depth + N defocused frames with known transforms, noise, exposure gain, and ground truth; TOML config; committed tiny fixtures.
   - Read: `docs/quality.md` §2.
   - Touch: `src/quality/synthetic.rs`, `tests/synthetic.rs`, `fixtures/synthetic/*.toml`.

@@ -1,0 +1,25 @@
+# Known-transform fixture: frame 1 is shifted and rotated relative to frame 0.
+width = 96
+height = 96
+frames = 2
+seed = 11
+coc_scale = 1.0
+focus = [0.25, 1.7]
+noise_read = 0.0
+noise_shot = 0.0
+exposure = [1.0, 1.0]
+layers = 6
+psf = "disk"
+c_max = 3.0
+
+[[transforms]]
+a = 1.0
+b = 0.0
+tx = 0.0
+ty = 0.0
+
+[[transforms]]
+a = 0.9996954083570741
+b = 0.024997395914712326
+tx = 1.5
+ty = -0.75
