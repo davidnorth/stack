@@ -265,7 +265,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/output/preview.rs`, `src/io/metadata.rs`, `tests/metadata.rs`.
   - Done: preview color matches output; metadata policy tested; orientation=1.
 
-- [ ] **S6.3 Retouch subcommand**
+- [x] **S6.3 Retouch subcommand**
   - Scope: mask JSON parser, stroke rasterization and feathering, mask PNG input, deterministic re-alignment from report, linear-light composite.
   - Read: `docs/outputs.md` §6; `docs/cli.md` §4.
   - Touch: `src/retouch.rs`, `src/cli.rs`, `tests/retouch.rs`.

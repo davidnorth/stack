@@ -3,23 +3,25 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use clap::{Parser, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 /// Focus stacking for macOS Apple Silicon.
 #[derive(Debug, Clone, Parser)]
 #[command(
     name = "focus-stack",
     version = crate::VERSION,
-    about = "Professional focus stacking for macOS Apple Silicon"
+    about = "Professional focus stacking for macOS Apple Silicon",
+    subcommand_negates_reqs = true,
+    subcommand_precedence_over_arg = true
 )]
 pub struct Cli {
     /// Input TIFF frames; one performs an identity pass, two or more stack.
-    #[arg(value_name = "INPUT", required = true, num_args = 1..)]
+    #[arg(value_name = "INPUT", num_args = 1..)]
     pub inputs: Vec<PathBuf>,
 
     /// Main TIFF output path.
     #[arg(short = 'o', long, value_name = "PATH")]
-    pub output: PathBuf,
+    pub output: Option<PathBuf>,
 
     // Core
     /// Stacking method; auto selects hybrid unless confidence is low.
@@ -135,6 +137,37 @@ pub struct Cli {
     /// Disable progress output.
     #[arg(short = 'q', long)]
     pub quiet: bool,
+
+    /// Optional subcommand; without one, inputs are stacked.
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+/// Documented subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum Command {
+    /// Recompose a stacked output from a JSON mask and run report.
+    Retouch(RetouchArgs),
+}
+
+/// Arguments for `focus-stack retouch`.
+#[derive(Debug, Clone, Args)]
+pub struct RetouchArgs {
+    /// Stacked TIFF to use as the base.
+    #[arg(long, value_name = "TIFF")]
+    pub base: PathBuf,
+    /// Original input frames in report order.
+    #[arg(long, value_name = "TIFF", required = true, num_args = 1..)]
+    pub sources: Vec<PathBuf>,
+    /// Report from the same run as the base.
+    #[arg(long, value_name = "JSON")]
+    pub report: PathBuf,
+    /// Mask JSON (strokes, polygons, and PNG masks).
+    #[arg(long, value_name = "JSON")]
+    pub mask: PathBuf,
+    /// Destination TIFF; defaults to `<base-stem>-retouched.tif`.
+    #[arg(short = 'o', long = "output", value_name = "TIFF")]
+    pub destination: Option<PathBuf>,
 }
 
 /// Stacking method.

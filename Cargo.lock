@@ -208,6 +208,7 @@ name = "focus-stack"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "flate2",
  "jpeg-encoder",
  "lcms2",
  "rayon",

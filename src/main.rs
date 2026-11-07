@@ -3,7 +3,7 @@
 use std::process::ExitCode;
 
 use clap::Parser;
-use focus_stack::cli::Cli;
+use focus_stack::cli::{Cli, Command};
 
 fn main() -> ExitCode {
     let cli = match Cli::try_parse() {
@@ -15,11 +15,19 @@ fn main() -> ExitCode {
         }
     };
 
-    match focus_stack::pipeline::run(&cli) {
+    let result =
+        match &cli.command {
+            Some(Command::Retouch(args)) => focus_stack::retouch::run(args)
+                .map_err(|error| (error.to_string(), error.exit_code())),
+            None => focus_stack::pipeline::run(&cli)
+                .map_err(|error| (error.to_string(), error.exit_code())),
+        };
+
+    match result {
         Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("focus-stack: {error}");
-            ExitCode::from(error.exit_code())
+        Err((message, code)) => {
+            eprintln!("focus-stack: {message}");
+            ExitCode::from(code)
         }
     }
 }

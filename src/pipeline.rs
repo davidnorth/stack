@@ -64,6 +64,9 @@ impl std::error::Error for PipelineError {}
 /// Runs the load -> copy -> write pipeline.
 pub fn run(cli: &Cli) -> Result<(), PipelineError> {
     let progress = Progress::new(cli.quiet, cli.verbose);
+    let output_path = cli.output.as_ref().ok_or_else(|| {
+        PipelineError::Usage("the required argument '--output <PATH>' was not provided".to_string())
+    })?;
 
     let mut frames = Vec::with_capacity(cli.inputs.len());
     for (index, path) in cli.inputs.iter().enumerate() {
@@ -149,8 +152,8 @@ pub fn run(cli: &Cli) -> Result<(), PipelineError> {
         depth = Some(field);
     }
 
-    progress.step(format_args!("writing {}", cli.output.display()));
-    tiff_write::write_tiff(&cli.output, &output, &options)
+    progress.step(format_args!("writing {}", output_path.display()));
+    tiff_write::write_tiff(output_path, &output, &options)
         .map_err(|err| PipelineError::Io(err.to_string()))?;
 
     if let Some(field) = &depth {
@@ -179,12 +182,12 @@ pub fn run(cli: &Cli) -> Result<(), PipelineError> {
     }
 
     if let Some(path) = &cli.report {
-        write_report(path, cli, &frames, reference)?;
+        write_report(path, cli, output_path, &frames, reference)?;
     }
 
     progress.step(format_args!(
         "wrote {} ({}x{}, {} bits, {} frame(s))",
-        cli.output.display(),
+        output_path.display(),
         first.meta.width,
         first.meta.height,
         options.bits,
@@ -361,6 +364,7 @@ fn compression(value: Compression) -> tiff_write::Compression {
 fn write_report(
     path: &Path,
     cli: &Cli,
+    output_path: &Path,
     frames: &[Frame],
     reference: usize,
 ) -> Result<(), PipelineError> {
@@ -379,7 +383,7 @@ fn write_report(
     let _ = writeln!(
         report,
         "  \"output\": {},",
-        json_string(&cli.output.to_string_lossy())
+        json_string(&output_path.to_string_lossy())
     );
     let frame = frames
         .get(reference)
