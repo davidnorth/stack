@@ -201,3 +201,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 6 new hybrid tests); native-resolution synthetic detail recovery inside the 0.95–1.10 gate with the soft DMap baseline below 0.95; added luma bounded by `k*tau`; output chroma matches DMap
 - Decisions: reuse `focus::confidence::guided_filter` for the §4.1 base (`r=24`, `eps=1e-3`); transfer `k*tau*tanh(Dp/tau)` on Rec.709 luma only; carry DMap `Cb=B-Y`/`Cr=R-Y` and clamp final RGB; sanitize `k` to `[0,1]`; chose the guided-base/YCbCr variant, leaving the Laplacian-mask alternative to the S5.2 pyramid path
 - Follow-ups: S5.2 adds low-pass anchoring and overshoot diagnostics; S5.3 wires the hybrid into method selection; pipeline integration was not touched here
+
+## S5.2 — 2026-11-07
+
+- Scope: halo suppression via DMap low-pass anchoring, gradient-domain/pyramid blend, edge-band overshoot diagnostics
+- Changed: `src/stack/hybrid.rs`, `tests/stack_halo.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 10 new halo tests); synthetic ridge halo normalized overshoot DMap 0.3750, PMax 0.7500, unsuppressed hybrid 0.3982, suppressed 0.0000, effective k 0.0231
+- Decisions: `pyramid_anchor` reconstructs only the coarsest `anchor_levels` Laplacian bands and `anchor_coarse` swaps those bands from DMap unconditionally; the edge-band clamp soft-limits high frequencies against a box low-pass anchor over a feathered 5 px band; `halo_overshoot` measures values leaving the reference local range, normalised by local contrast and reduced with p99; `stack_hybrid_halo` returns `rgb`, suppressed `luma`, residual `overshoot`, and `k_effective`
+- Follow-ups: S5.3 chooses/smooths the hybrid mask and wires halo suppression into method selection and the pipeline; S5.4 tunes the anchor/limit constants against real stacks

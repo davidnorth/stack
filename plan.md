@@ -231,7 +231,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/stack/hybrid.rs`, `tests/stack_hybrid.rs`.
   - Done: detail recovery ≥ 0.95 on synthetic; overshoot within limit; visual check at 100%.
 
-- [ ] **S5.2 Halo suppression**
+- [x] **S5.2 Halo suppression**
   - Scope: low-pass anchoring from DMap, gradient-domain/pyramid blend, edge-band diagnostics.
   - Read: `docs/stacking.md` §4.2.
   - Touch: `src/stack/hybrid.rs`, `tests/stack_halo.rs`.
