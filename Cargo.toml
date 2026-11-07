@@ -10,6 +10,7 @@ keywords = ["photography", "focus-stacking", "tiff", "image-processing"]
 categories = ["multimedia::images", "command-line-utilities"]
 
 [dependencies]
+tiff = { version = "0.11.3", default-features = false, features = ["deflate", "lzw"] }
 
 [dev-dependencies]
 

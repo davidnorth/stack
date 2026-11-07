@@ -79,7 +79,7 @@ the same stacks as tuning and validation sets.
   - Touch: `Cargo.toml`, `rust-toolchain.toml`, `src/main.rs`, `src/lib.rs`, `.github/workflows/ci.yml`, `.gitignore`, `LICENSE`.
   - Done: CI green; `cargo test` runs; `cargo fmt --check` and clippy clean.
 
-- [ ] **S0.2 TIFF reader**
+- [x] **S0.2 TIFF reader**
   - Scope: decode 8/16-bit RGB, strips and tiles, none/LZW/Deflate/PackBits, horizontal predictor, ICC tag, EXIF orientation, BigTIFF read.
   - Read: `docs/io-and-color.md` §1–3, §8.
   - Touch: `src/io/tiff_read.rs`, `src/io/exif.rs`, `tests/io_read.rs`, `fixtures/io/*`.
