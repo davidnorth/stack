@@ -104,3 +104,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (all suites pass, 12 new warp tests + 1 ignored perf gate); release perf gate `cargo test --release --test align_warp warp_24mp_under_half_second -- --ignored` measured 24 MP RGB warp in 0.29 s (< 0.5 s); identity warp is bit-exact; 90° round-trip error ≤ 1 LSB; constant-image rotation + crop has no dark border
 - Decisions: interleaved linear-light `f32` with an explicit channel count; one 2D gather with separable x/y Lanczos3 weights (supports rotation and avoids shear passes); 2048-entry subpixel table with linear interpolation, with exact integer taps so integer-aligned transforms stay bit-exact; pre-blur threshold uses the source-to-output scale `s` from §6, i.e. `1/hypot(a,b) < 0.98`, with `sigma = sqrt(1/s² − 1)` in source pixels; `valid_rect` solves the four source-space half-planes for the largest centred axis-aligned rectangle; crop inset is `LANCZOS_RADIUS + 1 = 4`
 - Follow-ups: pipeline wiring of warp + `common_valid_rect` + crop belongs to S1.6; performance is a single measured release run, formal benchmarks land in S7.4
+
+## S1.6 — 2026-11-07
+
+- Scope: per-tile residual/NCC diagnostics, median/p95 aggregation, warning/failure thresholds, alignment report fields
+- Changed: `src/align/diagnostics.rs`, `src/output/report.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + 68 integration passed; 6 new diagnostics unit tests + 3 new report unit tests); synthetic 0.2 px half-res shift reports p95 0.40 px (default 2× scale); 0.4 px full-res p95 warns; 1.2 px p95 fails unless `force`
+- Decisions: diagnostics take already-warped source/reference luma at half resolution; 128 px tiles with local phase correlation, displacement scaled by `full_res_scale` (default 2); per-tile NCC is Pearson correlation after removing the measured displacement; low-confidence tiles are reported but excluded from medians; p95 uses linear interpolation; report alignment object keeps schema order (`reference_index`, `transforms`, `residual_px`, `correlation`, `peak_confidence`, `warnings`) and emits `null` for non-finite values
+- Follow-ups: pipeline wiring of warp/crop and `AlignmentReport` still pending; `--report` continues to write the S0.5 inline stub

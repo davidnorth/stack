@@ -143,7 +143,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/align/warp.rs`, `tests/align_warp.rs`.
   - Done: identity warp bit-exact; 90° round-trip within 1 LSB; 24 MP warp < 0.5 s/frame; no black borders.
 
-- [ ] **S1.6 Alignment diagnostics**
+- [x] **S1.6 Alignment diagnostics**
   - Scope: per-tile residual/NCC, median/p95, warning thresholds, report fields.
   - Read: `docs/alignment.md` §8–9.
   - Touch: `src/align/diagnostics.rs`, `src/output/report.rs`.
