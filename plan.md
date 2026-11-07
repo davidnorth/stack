@@ -181,7 +181,7 @@ the same stacks as tuning and validation sets.
 
 ## S3 — PMax engine (1–2 days)
 
-- [ ] **S3.1 Level weights**
+- [x] **S3.1 Level weights**
   - Scope: temperature softmax, noise/confidence gating, chroma-smoothed weights.
   - Read: `docs/stacking.md` §2.1.
   - Touch: `src/stack/pmax.rs`, `tests/stack_weights.rs`.

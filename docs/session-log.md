@@ -145,3 +145,11 @@ Format:
 - Decisions: confidence is `clamp((E1-E2)/(E1+eps),0,1)` smoothed by the O(1) guided filter (`r=8`, `eps=1e-3`), then zeroed at coverage gaps (`E1 < 4*sigma^2`) and saturated winner pixels (`any channel >= 0.995`); `FrameCalibration` derives an §6-weighted aggregate sigma over band levels (residual excluded) plus min/max/mean/median/p95 statistics and deliberately does not rescale energies (§4); coverage reports gap fraction and deterministic 8-connected bounding boxes; `src/focus/energy.rs` `accumulate_upsampled` now uses each level's actual source/destination ratio instead of a hard-coded `x/2`, which previously clamped coarse levels at the halfway point and leaked texture into distant sky
 - Follow-ups: pipeline/report wiring of confidence, coverage warnings, saturation masks, and per-frame statistics remains with later focus-measure integration; noise-floor bias on pure-noise skies is inherited from S2.2 and should be revisited if real-stack coverage proves too permissive
 
+
+## S3.1 — 2026-11-07
+
+- Scope: PMax level weights — per-level p99 energy normalization, temperature softmax, confidence gating toward uniform, chroma-smoothed weights
+- Changed: `src/stack/pmax.rs`, `tests/stack_weights.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 8 new weight tests); weights and chroma weights sum to 1 within 1e-5; flat/zero and NaN/infinite energies stay finite and uniform; c=0 yields exact uniform weights and c=1 yields softmax selection
+- Decisions: energies are supplied as per-frame `EnergyMaps`; coarser levels sample the nearest full-resolution confidence at `x * 2^l`; p99 uses a 4096-bin streaming histogram over finite non-negative samples so 24 MP stacks need no full-energy sort; softmax subtracts the per-pixel max logit for overflow safety; chroma is `0.5*w + 0.5/N`; `level_weights` exposes the per-level core for S3.2 and tests
+- Follow-ups: S3.2 consumes `LevelWeights` for Laplacian blending and coarse-level tone anchoring; beta stays internal at 6 until the `--pmax-beta` debug flag is plumbed
