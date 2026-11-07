@@ -187,7 +187,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/stack/pmax.rs`, `tests/stack_weights.rs`.
   - Done: weights sum to 1; no NaN on flat regions; confidence gating verified.
 
-- [ ] **S3.2 Pyramid blend and integration**
+- [x] **S3.2 Pyramid blend and integration**
   - Scope: Laplacian coefficient blend, coarse-level tone anchoring, reconstruct, `--method pmax`.
   - Read: `docs/stacking.md` §2.2–2.3.
   - Touch: `src/stack/pmax.rs`, `src/pipeline.rs`, `tests/stack_pmax.rs`.

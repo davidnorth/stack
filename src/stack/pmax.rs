@@ -1,7 +1,9 @@
 //! Pyramid maximum contrast blending.
 
+use crate::color::luma::linear_luma;
 use crate::focus::confidence::ConfidenceMap;
 use crate::focus::energy::EnergyMaps;
+use crate::focus::pyramid::Pyramid;
 
 /// Default PMax temperature `beta` from `docs/stacking.md` §2.1.
 pub const DEFAULT_BETA: f32 = 6.0;
@@ -11,9 +13,27 @@ pub const WEIGHT_EPSILON: f32 = 1.0e-6;
 pub const ENERGY_PERCENTILE: f32 = 0.99;
 /// Chroma weights are mixed this far toward uniform (§2.1).
 pub const CHROMA_MIX: f32 = 0.5;
+/// Coarsest levels that use uniform weights for standalone tone anchoring
+/// (`docs/stacking.md` §2.2).
+pub const TONE_ANCHOR_LEVELS: usize = 2;
 
 /// Number of bins in the streaming percentile histogram.
 const PERCENTILE_BINS: usize = 4096;
+
+/// Options for [`blend`] and [`stack`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlendOptions {
+    /// Number of coarsest pyramid levels blended with uniform weights.
+    pub tone_anchor_levels: usize,
+}
+
+impl Default for BlendOptions {
+    fn default() -> Self {
+        Self {
+            tone_anchor_levels: TONE_ANCHOR_LEVELS,
+        }
+    }
+}
 
 /// Options for [`LevelWeights::compute`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -272,6 +292,266 @@ pub fn level_weights(
         p99,
         weights,
         chroma,
+    }
+}
+
+/// Blend linear-light RGB frames with their PMax level weights (`§2.2–2.3`).
+///
+/// `frames` holds one interleaved linear RGB buffer per frame, all
+/// `width * height * 3` samples long. Luma is blended with the level weights,
+/// chroma with the smoother chroma weights, and the coarsest
+/// [`BlendOptions::tone_anchor_levels`] levels use uniform weights so PMax does
+/// not shift large-scale tone or colour. The result is clamped to `[0, 1]`.
+///
+/// # Panics
+///
+/// Panics if `frames` is empty, dimensions are zero, a buffer has the wrong
+/// length, or the weight levels do not match the pyramid level count.
+#[must_use]
+pub fn blend(
+    frames: &[&[f32]],
+    width: u32,
+    height: u32,
+    weights: &LevelWeights,
+    options: BlendOptions,
+) -> Vec<f32> {
+    assert!(!frames.is_empty(), "at least one frame is required");
+    assert!(width > 0 && height > 0, "image dimensions must be non-zero");
+    let count = (width as usize) * (height as usize);
+    for frame in frames {
+        assert_eq!(frame.len(), count * 3, "RGB buffer length mismatch");
+    }
+
+    let luma = blend_channel(frames, width, height, weights, Channel::Luma, options);
+    let cb = blend_channel(frames, width, height, weights, Channel::Cb, options);
+    let cr = blend_channel(frames, width, height, weights, Channel::Cr, options);
+
+    let mut out = vec![0.0f32; count * 3];
+    for (index, pixel) in out.as_chunks_mut::<3>().0.iter_mut().enumerate() {
+        let y = luma[index];
+        let cb = cb[index];
+        let cr = cr[index];
+        let r = y + cr;
+        let b = y + cb;
+        let g = y - (0.2126 * cr + 0.0722 * cb) / 0.7152;
+        pixel[0] = r.clamp(0.0, 1.0);
+        pixel[1] = g.clamp(0.0, 1.0);
+        pixel[2] = b.clamp(0.0, 1.0);
+    }
+    out
+}
+
+/// Compute PMax weights, blend, and reconstruct.
+///
+/// This is [`LevelWeights::compute`] followed by [`blend`] with default
+/// options. Energies and confidence come from the focus-measurement stage.
+///
+/// # Panics
+///
+/// Panics if `frames` and `energies` differ in length, or on the same
+/// conditions as [`LevelWeights::compute`] and [`blend`].
+#[must_use]
+pub fn stack(
+    frames: &[&[f32]],
+    width: u32,
+    height: u32,
+    energies: &[EnergyMaps],
+    confidence: &ConfidenceMap,
+    options: WeightOptions,
+) -> Vec<f32> {
+    assert_eq!(
+        frames.len(),
+        energies.len(),
+        "frame and energy count mismatch"
+    );
+    let weights = LevelWeights::compute(energies, confidence, options);
+    blend(frames, width, height, &weights, BlendOptions::default())
+}
+
+/// Reconstruct one channel from blended Laplacian coefficients.
+///
+/// `levels` holds row-major coefficients from the finest level to the coarsest
+/// residual, and `dimensions` the matching `(width, height)` per level. The
+/// bilinear upsample matches [`Pyramid::reconstruct`].
+///
+/// # Panics
+///
+/// Panics if the level and dimension counts differ, are empty, or a buffer
+/// does not match its level dimensions.
+#[must_use]
+pub fn reconstruct(levels: &[Vec<f32>], dimensions: &[(u32, u32)]) -> Vec<f32> {
+    assert!(!levels.is_empty(), "at least one level is required");
+    assert_eq!(
+        levels.len(),
+        dimensions.len(),
+        "level and dimension count mismatch"
+    );
+    for (level, &(width, height)) in levels.iter().zip(dimensions) {
+        assert_eq!(
+            level.len(),
+            (width as usize) * (height as usize),
+            "level buffer length mismatch"
+        );
+    }
+
+    let mut current = levels.last().expect("at least one level").clone();
+    let (mut current_width, mut current_height) = *dimensions.last().expect("at least one level");
+    let mut upsampled = Vec::new();
+
+    for (level, &(width, height)) in levels.iter().zip(dimensions).rev().skip(1) {
+        upsample_into(
+            &current,
+            current_width,
+            current_height,
+            &mut upsampled,
+            width,
+            height,
+        );
+        for (value, &coefficient) in upsampled.iter_mut().zip(level) {
+            *value += coefficient;
+        }
+        std::mem::swap(&mut current, &mut upsampled);
+        current_width = width;
+        current_height = height;
+    }
+
+    current
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Channel {
+    Luma,
+    Cb,
+    Cr,
+}
+
+/// Blend one channel across frames using its matching weight map.
+fn blend_channel(
+    frames: &[&[f32]],
+    width: u32,
+    height: u32,
+    weights: &LevelWeights,
+    channel: Channel,
+    options: BlendOptions,
+) -> Vec<f32> {
+    let inv_n = 1.0 / frames.len() as f32;
+    let level_count = weights.len();
+    let mut blended: Option<Vec<Vec<f32>>> = None;
+    let mut dimensions = Vec::with_capacity(level_count);
+    let anchor_start = level_count.saturating_sub(options.tone_anchor_levels.min(level_count));
+
+    for (frame, rgb) in frames.iter().enumerate() {
+        let values = channel_buffer(rgb, channel);
+        let mut pyramid = Pyramid::new();
+        pyramid.build(&values, width, height);
+        assert_eq!(
+            pyramid.levels().len(),
+            level_count,
+            "weight and pyramid level count mismatch"
+        );
+
+        if blended.is_none() {
+            dimensions = pyramid
+                .levels()
+                .iter()
+                .map(|level| (level.width, level.height))
+                .collect();
+            blended = Some(
+                dimensions
+                    .iter()
+                    .map(|&(level_width, level_height)| {
+                        vec![0.0f32; (level_width as usize) * (level_height as usize)]
+                    })
+                    .collect(),
+            );
+        }
+        let blended = blended.as_mut().expect("initialized above");
+
+        for (level_index, (level, out)) in
+            pyramid.levels().iter().zip(blended.iter_mut()).enumerate()
+        {
+            let uniform = level_index >= anchor_start;
+            let frame_weights = if uniform {
+                None
+            } else if channel == Channel::Luma {
+                weights
+                    .level(level_index)
+                    .and_then(|level| level.frame_weights(frame))
+            } else {
+                weights
+                    .level(level_index)
+                    .and_then(|level| level.frame_chroma(frame))
+            };
+
+            match frame_weights {
+                Some(frame_weights) => {
+                    for (value, (&coefficient, &weight)) in out
+                        .iter_mut()
+                        .zip(level.laplacian.iter().zip(frame_weights))
+                    {
+                        *value += weight * coefficient;
+                    }
+                }
+                None => {
+                    for (value, &coefficient) in out.iter_mut().zip(&level.laplacian) {
+                        *value += inv_n * coefficient;
+                    }
+                }
+            }
+        }
+    }
+
+    reconstruct(blended.as_deref().expect("at least one frame"), &dimensions)
+}
+
+/// Extract a luma or chroma channel from interleaved linear RGB.
+fn channel_buffer(rgb: &[f32], channel: Channel) -> Vec<f32> {
+    let mut out = Vec::with_capacity(rgb.len() / 3);
+    for pixel in rgb.as_chunks::<3>().0 {
+        let y = linear_luma(pixel[0], pixel[1], pixel[2]);
+        out.push(match channel {
+            Channel::Luma => y,
+            Channel::Cb => pixel[2] - y,
+            Channel::Cr => pixel[0] - y,
+        });
+    }
+    out
+}
+
+/// Bilinear upsample with source coordinate `x / 2` and edge clamping, matching
+/// the analysis pyramid.
+fn upsample_into(
+    src: &[f32],
+    src_width: u32,
+    src_height: u32,
+    dst: &mut Vec<f32>,
+    dst_width: u32,
+    dst_height: u32,
+) {
+    let sw = src_width as usize;
+    let sh = src_height as usize;
+    let dw = dst_width as usize;
+    let dh = dst_height as usize;
+    dst.resize(dw * dh, 0.0);
+
+    for dy in 0..dh {
+        let fy = dy as f32 * 0.5;
+        let y0 = fy.floor() as usize;
+        let ty = fy - y0 as f32;
+        let y1 = (y0 + 1).min(sh - 1);
+        let y0 = y0.min(sh - 1);
+
+        for dx in 0..dw {
+            let fx = dx as f32 * 0.5;
+            let x0 = fx.floor() as usize;
+            let tx = fx - x0 as f32;
+            let x1 = (x0 + 1).min(sw - 1);
+            let x0 = x0.min(sw - 1);
+
+            let top = src[y0 * sw + x0] * (1.0 - tx) + src[y0 * sw + x1] * tx;
+            let bottom = src[y1 * sw + x0] * (1.0 - tx) + src[y1 * sw + x1] * tx;
+            dst[dy * dw + dx] = top * (1.0 - ty) + bottom * ty;
+        }
     }
 }
 

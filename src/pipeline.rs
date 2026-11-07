@@ -5,10 +5,19 @@ use std::fmt::Write as _;
 use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 
-use crate::cli::{Cli, Compression, Reference};
+use crate::cli::{Cli, Compression, Method, Reference};
+use crate::color::luma::encoded_luma_buffer;
+use crate::color::transfer::srgb_decode;
+use crate::focus::confidence::{
+    ConfidenceMap, ConfidenceOptions, FrameCalibration, saturation_mask,
+};
+use crate::focus::energy::{EnergyMaps, EnergyOptions};
+use crate::focus::noise::{self, DEFAULT_NOISE_K};
+use crate::focus::pyramid::Pyramid;
 use crate::io::metadata::MetadataPolicy;
 use crate::io::tiff_read::read_tiff;
 use crate::io::tiff_write::{self, WriteOptions};
+use crate::stack::pmax::{self, WeightOptions};
 use crate::{Frame, VERSION};
 
 /// Pipeline failure with the exit code documented in `docs/cli.md` §5.
@@ -110,8 +119,15 @@ pub fn run(cli: &Cli) -> Result<(), PipelineError> {
         },
     };
 
+    let output = if cli.method == Method::Pmax && frames.len() > 1 {
+        progress.step(format_args!("stacking with PMax"));
+        pmax_frame(cli, &frames, reference)
+    } else {
+        frames[reference].clone()
+    };
+
     progress.step(format_args!("writing {}", cli.output.display()));
-    tiff_write::write_tiff(&cli.output, &frames[reference], &options)
+    tiff_write::write_tiff(&cli.output, &output, &options)
         .map_err(|err| PipelineError::Io(err.to_string()))?;
 
     if let Some(path) = &cli.report {
@@ -127,6 +143,96 @@ pub fn run(cli: &Cli) -> Result<(), PipelineError> {
         frames.len()
     ));
     Ok(())
+}
+
+/// Stacks loaded frames with the PMax engine.
+///
+/// Focus energies come from the encoded luma pyramids from
+/// `docs/focus-measure.md`; blending happens in linear light per
+/// `docs/stacking.md` §2.2–2.3.
+fn pmax_frame(cli: &Cli, frames: &[Frame], reference: usize) -> Frame {
+    let reference_frame = &frames[reference];
+    let width = reference_frame.meta.width;
+    let height = reference_frame.meta.height;
+    let count = (width as usize) * (height as usize);
+
+    let mut encoded: Vec<Vec<f32>> = frames
+        .iter()
+        .map(|frame| {
+            frame
+                .rgb
+                .iter()
+                .map(|&value| f32::from(value) / 65535.0)
+                .collect()
+        })
+        .collect();
+
+    let mut guide = vec![0.0f32; count];
+    encoded_luma_buffer(&encoded[reference], &mut guide);
+
+    let mut energies = Vec::with_capacity(frames.len());
+    let mut aggregates = Vec::with_capacity(frames.len());
+    let mut calibrations = Vec::with_capacity(frames.len());
+    let mut saturation = Vec::with_capacity(frames.len());
+
+    for rgb in &encoded {
+        let mut luma = vec![0.0f32; count];
+        encoded_luma_buffer(rgb, &mut luma);
+
+        let mut pyramid = Pyramid::new();
+        pyramid.build(&luma, width, height);
+        let noise = noise::estimate(&pyramid, DEFAULT_NOISE_K);
+        let energy = EnergyMaps::compute(
+            &pyramid,
+            &noise,
+            EnergyOptions {
+                radius: cli.estimation_radius,
+                contrast_normalize: cli.contrast_normalize,
+            },
+        );
+        let aggregate = energy.aggregate();
+        let sigmas: Vec<f32> = noise.sigmas().collect();
+
+        calibrations.push(FrameCalibration::new(&aggregate, &sigmas));
+        aggregates.push(aggregate);
+        energies.push(energy);
+        saturation.push(saturation_mask(rgb, width, height, 3));
+    }
+
+    let confidence = ConfidenceMap::compute(
+        &aggregates,
+        &guide,
+        width,
+        height,
+        &calibrations,
+        Some(&saturation),
+        ConfidenceOptions::default(),
+    );
+
+    // Decode to linear light in place to avoid a second full-resolution copy.
+    for rgb in &mut encoded {
+        for value in rgb.iter_mut() {
+            *value = srgb_decode(*value);
+        }
+    }
+    let views: Vec<&[f32]> = encoded.iter().map(Vec::as_slice).collect();
+    let blended = pmax::stack(
+        &views,
+        width,
+        height,
+        &energies,
+        &confidence,
+        WeightOptions {
+            beta: cli.pmax_beta,
+        },
+    );
+
+    let mut output = reference_frame.clone();
+    output.rgb = blended
+        .iter()
+        .map(|&value| (value.clamp(0.0, 1.0) * 65535.0).round() as u16)
+        .collect();
+    output
 }
 
 fn compression(value: Compression) -> tiff_write::Compression {

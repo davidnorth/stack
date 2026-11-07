@@ -153,3 +153,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 8 new weight tests); weights and chroma weights sum to 1 within 1e-5; flat/zero and NaN/infinite energies stay finite and uniform; c=0 yields exact uniform weights and c=1 yields softmax selection
 - Decisions: energies are supplied as per-frame `EnergyMaps`; coarser levels sample the nearest full-resolution confidence at `x * 2^l`; p99 uses a 4096-bin streaming histogram over finite non-negative samples so 24 MP stacks need no full-energy sort; softmax subtracts the per-pixel max logit for overflow safety; chroma is `0.5*w + 0.5/N`; `level_weights` exposes the per-level core for S3.2 and tests
 - Follow-ups: S3.2 consumes `LevelWeights` for Laplacian blending and coarse-level tone anchoring; beta stays internal at 6 until the `--pmax-beta` debug flag is plumbed
+
+## S3.2 — 2026-11-07
+
+- Scope: PMax Laplacian coefficient blend, coarse-level tone anchoring, reconstruction, `--method pmax` pipeline integration
+- Changed: `src/stack/pmax.rs`, `src/pipeline.rs`, `tests/stack_pmax.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 3 new PMax tests); PMax SSIM beats naive Laplacian-max on the synthetic two-frame ridge; sky RMS noise below naive and below 0.02; CLI PMax run writes a readable 16-bit TIFF
+- Decisions: blend luma with softmax weights and chroma with the smoother chroma weights; force the coarsest two levels to uniform weights for tone anchoring; PMax reconstruction keeps the analysis pyramid's bilinear `x/2` upsample and is verified against `Pyramid::reconstruct`; pipeline PMax computes encoded-luma focus pyramids, noise, energies and confidence, then decodes in place to linear RGB for blending; `--pmax-beta` now reaches the stacker
+- Follow-ups: auto/hybrid method selection and alignment wiring remain with S5.3; pipeline still copies the reference for non-PMax methods
