@@ -315,7 +315,7 @@ the same stacks as tuning and validation sets.
 
 ## S8 — Packaging and release (1–2 days)
 
-- [ ] **S8.1 Packaging**
+- [x] **S8.1 Packaging**
   - Scope: release build, ad-hoc codesign, tarball, Homebrew formula.
   - Read: `docs/cli.md` §6.
   - Touch: `scripts/package.sh`, `Formula/focus-stack.rb`.
