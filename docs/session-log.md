@@ -72,3 +72,11 @@ Format:
 - Decisions: API takes full-resolution encoded interleaved RGB `f32`; only full-res luma plus a 1-byte colour-validity mask are retained, and each level is built directly from them (conservative validity: any invalid source pixel invalidates the destination); p20 threshold uses a histogram rather than a sorted copy; targets larger than the source collapse to native size
 - Follow-ups: S1.2 consumes `AlignmentLevel`; reference-frame selection from gradient energy and pipeline wiring remain for later sessions
 
+## S1.2 — 2026-11-07
+
+- Scope: phase-correlation translation — cross-power spectrum, peak search, parabolic subpixel refinement
+- Changed: `src/align/phase.rs`, `tests/align_phase.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (42 unit + 65 integration passed); `cargo test align_phase` (6 passed) recovers all integer and 0.25 px shifts within 0.05 px; non-power-of-two impulse test covers FFT padding
+- Decisions: self-contained radix-2 FFT (no new dependency); axes zero-padded to the next power of two; cross-power normalisation uses a 1e-6 relative floor, because f32 rounding noise otherwise dominates near-zero bins; subpixel estimate is peak / second peak outside the 5×5 neighbourhood; Guizar-Sicairos upsampled DFT deferred (parabolic fit met the gate); `fft2d`/`Complex` are `pub(crate)` for S1.3 reuse
+- Follow-ups: S1.3 can reuse the crate-visible 2D FFT; coarse-to-fine level selection and `AlignmentLevel` wiring remain for S1.4/S1.6
+

@@ -119,7 +119,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/align/preprocess.rs`, `tests/align_preprocess.rs`.
   - Done: masks exclude sky/saturation in synthetic cases; memory bounded.
 
-- [ ] **S1.2 Phase-correlation translation**
+- [x] **S1.2 Phase-correlation translation**
   - Scope: FFT cross-power spectrum, peak search, parabolic subpixel, optional upsampled DFT.
   - Read: `docs/alignment.md` §3.
   - Touch: `src/align/phase.rs`, `tests/align_phase.rs`.
