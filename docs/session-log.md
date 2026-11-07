@@ -225,3 +225,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` passes; no synthetic regression observed
 - Decisions: left the checkbox unchecked and defaults untouched — the blind A/B Done criterion cannot be met without the real stacks and commercial baselines
 - Follow-ups: add `fixtures/real/` tuning set plus Photoshop/Helicon/Zerene renders and two raters; then run `docs/quality.md` §5 and tune hybrid detail/halo/mask constants and the auto threshold
+
+## S6.1 — 2026-11-07
+
+- Scope: schema-v1 JSON quality report with hashes, parameters, alignment/focus diagnostics, optional timings, and warnings
+- Changed: `src/output/report.rs`, `tests/report.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (64 unit + all integration passed; 5 new report tests); schema parsed from serialized JSON; two report builds byte-identical with `timing_ms`/`created_at` absent; SHA-256 vectors and streamed file hash match
+- Decisions: kept the hand-rolled JSON writer with fixed field order; added a self-contained SHA-256 implementation (no new dependency); timings/timestamps are omitted unless supplied; top-level warnings are the deduplicated first-seen union of run/alignment/focus warnings; wiring `Report` into the pipeline/report CLI path is left to S6.4
+- Follow-ups: S6.4 should populate input/output hashes and params from the pipeline and expose `--timings`/`--stamp` through `Report`

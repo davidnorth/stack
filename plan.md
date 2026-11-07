@@ -253,7 +253,7 @@ the same stacks as tuning and validation sets.
 
 ## S6 — Outputs, metadata, retouch (2–3 days)
 
-- [ ] **S6.1 Quality report**
+- [x] **S6.1 Quality report**
   - Scope: JSON schema, input hashes, parameters, alignment/focus diagnostics, timings, warnings.
   - Read: `docs/outputs.md` §4.
   - Touch: `src/output/report.rs`, `tests/report.rs`.
