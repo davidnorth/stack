@@ -293,7 +293,7 @@ the same stacks as tuning and validation sets.
   - Touch: `tests/regression.rs`, `.github/workflows/ci.yml`, `fixtures/manifest.toml`.
   - Done: tiny suite < 2 min; PR fails on regression beyond tolerance.
 
-- [ ] **S7.3 Formal real-stack A/B**
+- [x] **S7.3 Formal real-stack A/B**
   - Scope: run the 10-stack **held-out set** with the full protocol; do not reuse tuning stacks.
   - Read: `docs/quality.md` §5, §7.
   - Touch: `docs/quality-log.md`.

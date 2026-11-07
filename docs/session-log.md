@@ -273,3 +273,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` passes (7 new regression tests); sequential tiny suite 64 s, parallel 20 s (`< 2 min`); deliberately moving `stack-512-pmax` PSNR by 0.3 dB made the gate fail; CI splits fmt/clippy/test/regression and adds a scheduled release job; YAML parses
 - Decisions: manifest holds per-engine golden PSNR/SSIM/detail/halo/noise/ΔE00 plus the §4 tolerances, I/O round-trip list, alignment goldens, and report keys; metrics call `quality::metrics::evaluate` directly instead of `eval --json` because the pipeline writes linear samples and `eval` currently decodes TIFFs as encoded sRGB; golden image hashes are not used for quality; the regression CI step prebuilds, then runs with a 2-minute step timeout
 - Follow-ups: `hybrid` and `auto` still hit the pipeline reference fallback, so the hybrid golden records that behavior and will need a manifest update when the engine is wired; nightly runs the full release suite but 2 MP fixtures are not committed yet
+
+## S7.3 — 2026-11-07 (blocked)
+
+- Scope: formal held-out 10-stack blind A/B per `docs/quality.md` §5, §7
+- Changed: `docs/quality-log.md`, `docs/session-log.md` (no code)
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` passes; `fixtures/real/` is absent (only `fixtures/io/`, `fixtures/synthetic/`, and `fixtures/manifest.toml`); no commercial baseline renders or human raters are present
+- Decisions: left the checkbox unchecked and reported no scores — §5 requires a held-out set disjoint from tuning, four commercial baselines, anonymized crops, and two raters, none of which exist; fabricating results would violate the protocol
+- Follow-ups: add the prioritized artifacts listed in `docs/quality-log.md` (held-out stacks, Photoshop/Helicon/Zerene renders, our PMax/DMap/Hybrid output, two blind raters); wire alignment and hybrid into the pipeline (S6.4/S7.2 follow-up) before generating our A/B renders
