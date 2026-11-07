@@ -161,3 +161,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 3 new PMax tests); PMax SSIM beats naive Laplacian-max on the synthetic two-frame ridge; sky RMS noise below naive and below 0.02; CLI PMax run writes a readable 16-bit TIFF
 - Decisions: blend luma with softmax weights and chroma with the smoother chroma weights; force the coarsest two levels to uniform weights for tone anchoring; PMax reconstruction keeps the analysis pyramid's bilinear `x/2` upsample and is verified against `Pyramid::reconstruct`; pipeline PMax computes encoded-luma focus pyramids, noise, energies and confidence, then decodes in place to linear RGB for blending; `--pmax-beta` now reaches the stacker
 - Follow-ups: auto/hybrid method selection and alignment wiring remain with S5.3; pipeline still copies the reference for non-PMax methods
+
+## S4.1 — 2026-11-07
+
+- Scope: cost volume from aggregated per-frame energies, confidence-gated argmax, initial depth field, flat-region flags
+- Changed: `src/stack/dmap.rs`, `tests/stack_dmap_cost.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 5 new cost/argmax tests); synthetic three-band depth recovered exactly at ≥95% of pixels and within one frame everywhere; tied energies and zero confidence flag flat
+- Decisions: `CostVolume` stores frame-major aggregated energies (larger = stronger focus) with `Emax - E` exposed as the derived cost; `argmax_depth` selects `d0 = argmax_i E_i` with lowest-index tie-breaking and carries optional `ConfidenceMap` values into `DepthField::confidence`; flat is `Emax <= eps`, relative best-vs-second margin <= `FLAT_MARGIN`, or confidence zero; non-finite energies/confidence sanitize to zero; automatic threshold remains S4.2
+- Follow-ups: S4.2 supplies the Otsu/noise-floor confidence ramp and threshold reporting; S4.3 uses `d0` and the flat mask in the edge-aware solve

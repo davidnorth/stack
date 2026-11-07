@@ -197,7 +197,7 @@ the same stacks as tuning and validation sets.
 
 ## S4 — DMap engine (3–4 days)
 
-- [ ] **S4.1 Cost volume and argmax**
+- [x] **S4.1 Cost volume and argmax**
   - Scope: per-pixel cost, confidence-weighted argmax, initial depth field.
   - Read: `docs/stacking.md` §3.1.
   - Touch: `src/stack/dmap.rs`, `tests/stack_dmap_cost.rs`.
