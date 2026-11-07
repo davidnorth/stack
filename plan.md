@@ -91,7 +91,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/io/tiff_write.rs`, `src/io/metadata.rs`, `tests/io_roundtrip.rs`.
   - Done: read→write→read is bit-exact on all orientation=1 fixtures; ICC bytes identical; output opens in Lightroom and Photoshop.
 
-- [ ] **S0.4 Color pipeline**
+- [x] **S0.4 Color pipeline**
   - Scope: detect ICC (sRGB/linear/Adobe RGB/ProPhoto/P3/unknown), linearize to f32 linear sRGB, encoded luma, output profile conversion or preservation.
   - Read: `docs/io-and-color.md` §6.
   - Touch: `src/color/*.rs`, `tests/color.rs`.

@@ -39,3 +39,11 @@ Format:
 - Evidence: `cargo fmt --all --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (13 unit + 11 read + 6 round-trip passed); all orientation=1 fixtures round-trip pixel- and ICC-identical; macOS ImageIO (`sips`) opened a generated 16-bit LZW output with the embedded sRGB profile
 - Decisions: classic stripped TIFF, `Orientation = 1`, `SampleFormat = Unsigned`, default LZW and 16-bit; none/LZW/Deflate selectable; 8-bit output supported for the documented `--bits 8` round trip; metadata policy copies ICC/XMP/resolution and strips XMP with `Strip`; EXIF remains deferred to S6.2
 - Follow-ups: Lightroom/Photoshop GUI opening was not available on this machine; ImageIO validation used as the automated proxy. EXIF/IPTC/Software reporting lands in S6.2.
+
+## S0.4 — 2026-11-07
+
+- Scope: ICC detection, linear sRGB working space, encoded luma, output profile conversion or preservation
+- Changed: `Cargo.toml`, `Cargo.lock`, `src/color/transfer.rs`, `src/color/luma.rs`, `src/color/profile.rs`, `tests/color.rs`
+- Evidence: `cargo fmt --all --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (21 unit + 32 integration passed; 15 color tests); sRGB decode→encode within 1e-6; luma matches the 0.2126/0.7152/0.0722 reference; known/unknown/absent profiles, `--assume-profile`, explicit output profile, and ICC-byte preservation covered
+- Decisions: bundled `lcms2` static build (D012); detection by ICC description with colorant/TRC fallback; sRGB and linear sRGB use the exact internal transfer functions, wide-gamut uses lcms2 relative colorimetric; an absent profile assumes sRGB and exposes a warning per `docs/io-and-color.md` §6 (D012's stricter absent-profile wording is inconsistent and should be reconciled); unknown profiles error unless assumed; output preserves the input ICC bytes unless an explicit output profile is supplied
+- Follow-ups: S0.5 must wire `--assume-profile` / `--output-profile` file paths into `ColorPipeline`; clipping accounting and `--output-profile same` CLI plumbing belong there; ICC fixtures for Adobe RGB/ProPhoto/P3 are generated in tests rather than committed
