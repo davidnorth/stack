@@ -327,7 +327,7 @@ the same stacks as tuning and validation sets.
   - Touch: `README.md`, `docs/usage.md`.
   - Done: a new user can stack a sample without reading source.
 
-- [ ] **S8.3 v0.1.0 release**
+- [x] **S8.3 v0.1.0 release**
   - Scope: changelog, version bump, tag, CI release artifacts and checksums.
   - Touch: `CHANGELOG.md`, `Cargo.toml`, `.github/workflows/release.yml`.
   - Done: GitHub release published; artifact smoke test passes.
