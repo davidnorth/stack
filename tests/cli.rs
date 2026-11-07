@@ -276,7 +276,7 @@ fn out_of_range_reference_exits_two() {
 }
 
 #[test]
-fn report_stub_is_written() {
+fn report_is_written() {
     let dir = TempDir::new("report");
     let out = dir.join("out.tif");
     let report = dir.join("run.json");
@@ -298,11 +298,15 @@ fn report_stub_is_written() {
     );
 
     let report = fs::read_to_string(report).unwrap();
-    assert!(report.contains("\"version\""));
+    assert!(report.contains("\"schema_version\": 1"));
+    assert!(report.contains(&format!("\"version\": \"{}\"", focus_stack::VERSION)));
     assert!(report.contains("\"inputs\""));
-    assert!(report.contains("\"frames\": 2"));
-    assert!(report.contains("\"reference\": 0"));
-    assert!(report.contains("\"method\": \"Dmap\""));
+    assert!(report.contains("\"sha256\""));
+    assert!(report.contains("\"params\""));
+    assert!(report.contains("\"chosen\": \"dmap\""));
+    assert!(report.contains("\"output\""));
+    assert!(!report.contains("\"timing_ms\""));
+    assert!(!report.contains("\"created_at\""));
 }
 
 #[test]

@@ -271,7 +271,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/retouch.rs`, `src/cli.rs`, `tests/retouch.rs`.
   - Done: retouch from JSON alone reproduces the patch; no seams; invalid masks rejected.
 
-- [ ] **S6.4 Reproducibility**
+- [x] **S6.4 Reproducibility**
   - Scope: embed params/version/input hashes, `--seed`, deterministic reductions, output hash.
   - Read: `docs/outputs.md` §7.
   - Touch: `src/pipeline.rs`, `src/output/report.rs`, `tests/determinism.rs`.

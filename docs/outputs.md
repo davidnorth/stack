@@ -80,7 +80,8 @@ run did. Schema version 1:
     "exposure_match": "off",
     "compression": "lzw",
     "output_profile": "same",
-    "seed": 0
+    "seed": 0,
+    "threads": null
   },
   "alignment": {
     "reference_index": 0,
@@ -198,9 +199,13 @@ A later GUI can emit the same JSON.
 - Parameters are recorded in full.
 - Algorithm version is recorded (`tool.version`, `tool.git`).
 - Deterministic reductions and fixed seeds.
+- `params.threads` records an explicit `--threads` value; `null` means the
+  default pool (all cores).
 - Two runs with the same thread count produce byte-identical images and
   reports (no timestamps, no `--timings`).
 - Across thread counts, pixel differences are ≤ 1 LSB; report the tolerance.
+  Parallel workers write disjoint pixels, so no floating-point reduction
+  crosses threads.
 - `--stamp` and `--timings` are the only sources of nondeterminism; both are
   off by default.
 

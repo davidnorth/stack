@@ -1,11 +1,11 @@
 //! Load -> align -> measure -> stack -> write orchestration.
 
 use std::fmt;
-use std::fmt::Write as _;
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
-use crate::cli::{Cli, Compression, Method, Reference};
+use crate::cli::{Align, Cli, Compression, ExposureMatch, Method, OutputProfile, Reference};
 use crate::color::luma::encoded_luma_buffer;
 use crate::color::transfer::srgb_decode;
 use crate::focus::confidence::{
@@ -19,9 +19,13 @@ use crate::io::tiff_read::read_tiff;
 use crate::io::tiff_write::{self, WriteOptions};
 use crate::output::depth::write_depth_map;
 use crate::output::preview;
+use crate::output::report::{
+    AlignmentReport, FrameAlignment, InputReport, MethodReport, OutputReport, ParamsReport, Report,
+    TimingReport, icc_description, sha256_file, utc_timestamp_now,
+};
 use crate::stack::dmap::{self, CostVolume, DmapOptions, InterpolationOptions};
 use crate::stack::pmax::{self, WeightOptions};
-use crate::{DepthField, Frame, VERSION};
+use crate::{DepthField, Frame, Similarity};
 
 /// Pipeline failure with the exit code documented in `docs/cli.md` §5.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,11 +67,13 @@ impl std::error::Error for PipelineError {}
 
 /// Runs the load -> copy -> write pipeline.
 pub fn run(cli: &Cli) -> Result<(), PipelineError> {
+    configure_threads(cli);
     let progress = Progress::new(cli.quiet, cli.verbose);
     let output_path = cli.output.as_ref().ok_or_else(|| {
         PipelineError::Usage("the required argument '--output <PATH>' was not provided".to_string())
     })?;
 
+    let load_start = Instant::now();
     let mut frames = Vec::with_capacity(cli.inputs.len());
     for (index, path) in cli.inputs.iter().enumerate() {
         progress.step(format_args!(
@@ -79,6 +85,7 @@ pub fn run(cli: &Cli) -> Result<(), PipelineError> {
         let frame = read_tiff(path).map_err(|err| PipelineError::Input(err.to_string()))?;
         frames.push(frame);
     }
+    let load_ms = elapsed_ms(load_start);
 
     let first = frames
         .first()
@@ -126,6 +133,8 @@ pub fn run(cli: &Cli) -> Result<(), PipelineError> {
     };
 
     let mut depth: Option<DepthField> = None;
+    let chosen = chosen_method(cli.method, frames.len());
+    let stack_start = Instant::now();
     let output = match cli.method {
         Method::Pmax if frames.len() > 1 => {
             progress.step(format_args!("stacking with PMax"));
@@ -151,11 +160,14 @@ pub fn run(cli: &Cli) -> Result<(), PipelineError> {
         let (_, field) = dmap_frame(cli, &frames, reference);
         depth = Some(field);
     }
+    let stack_ms = elapsed_ms(stack_start);
 
+    let encode_start = Instant::now();
     progress.step(format_args!("writing {}", output_path.display()));
     tiff_write::write_tiff(output_path, &output, &options)
         .map_err(|err| PipelineError::Io(err.to_string()))?;
 
+    let mut warnings = Vec::new();
     if let Some(field) = &depth {
         for path in depth_paths {
             let report = write_depth_map(
@@ -171,9 +183,15 @@ pub fn run(cli: &Cli) -> Result<(), PipelineError> {
                     "depth map '{}' is all zeros for a single input frame",
                     path.display()
                 ));
+                warnings.push(format!(
+                    "depth map '{}' is all zeros for a single input frame",
+                    path.display()
+                ));
             }
         }
     }
+
+    let encode_ms = elapsed_ms(encode_start);
 
     if let Some(path) = &cli.preview {
         progress.step(format_args!("writing preview {}", path.display()));
@@ -182,7 +200,23 @@ pub fn run(cli: &Cli) -> Result<(), PipelineError> {
     }
 
     if let Some(path) = &cli.report {
-        write_report(path, cli, output_path, &frames, reference)?;
+        write_report(ReportInputs {
+            path,
+            cli,
+            output_path,
+            output: &output,
+            frames: &frames,
+            reference,
+            chosen,
+            warnings,
+            timing: TimingReport {
+                load: load_ms,
+                align: 0,
+                focus: 0,
+                stack: stack_ms,
+                encode: encode_ms,
+            },
+        })?;
     }
 
     progress.step(format_args!(
@@ -361,81 +395,200 @@ fn compression(value: Compression) -> tiff_write::Compression {
     }
 }
 
-fn write_report(
-    path: &Path,
-    cli: &Cli,
-    output_path: &Path,
-    frames: &[Frame],
+struct ReportInputs<'a> {
+    path: &'a Path,
+    cli: &'a Cli,
+    output_path: &'a Path,
+    output: &'a Frame,
+    frames: &'a [Frame],
     reference: usize,
-) -> Result<(), PipelineError> {
-    let mut report = String::new();
-    report.push_str("{\n");
-    let _ = writeln!(report, "  \"version\": {},", json_string(VERSION));
-    let _ = writeln!(
-        report,
-        "  \"inputs\": [{}],",
-        cli.inputs
-            .iter()
-            .map(|path| json_string(&path.to_string_lossy()))
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    let _ = writeln!(
-        report,
-        "  \"output\": {},",
-        json_string(&output_path.to_string_lossy())
-    );
-    let frame = frames
-        .get(reference)
-        .ok_or_else(|| PipelineError::Internal("missing reference frame".to_string()))?;
-    let _ = writeln!(report, "  \"width\": {},", frame.meta.width);
-    let _ = writeln!(report, "  \"height\": {},", frame.meta.height);
-    let _ = writeln!(report, "  \"bits\": {},", frame.meta.bits);
-    let _ = writeln!(report, "  \"frames\": {},", frames.len());
-    let _ = writeln!(report, "  \"reference\": {reference},");
-    let _ = writeln!(
-        report,
-        "  \"method\": {},",
-        json_string(&format!("{:?}", cli.method))
-    );
-    let _ = writeln!(
-        report,
-        "  \"alignment\": {},",
-        json_string(&format!("{:?}", cli.align))
-    );
-    let _ = writeln!(
-        report,
-        "  \"compression\": {}",
-        json_string(&format!("{:?}", cli.compression))
-    );
-    report.push_str("}\n");
+    chosen: &'static str,
+    warnings: Vec<String>,
+    timing: TimingReport,
+}
 
-    std::fs::write(path, report).map_err(|err| {
+fn write_report(input: ReportInputs<'_>) -> Result<(), PipelineError> {
+    let cli = input.cli;
+    let inputs = input
+        .frames
+        .iter()
+        .zip(&cli.inputs)
+        .map(|(frame, path)| {
+            let sha256 = sha256_file(path).map_err(|err| {
+                PipelineError::Io(format!("failed to hash input '{}': {err}", path.display()))
+            })?;
+            Ok(InputReport::new(
+                path.to_string_lossy().into_owned(),
+                sha256,
+                frame.meta.width,
+                frame.meta.height,
+                frame.meta.bits,
+                frame.meta.orientation,
+                icc_description(frame.meta.icc.as_deref()),
+            ))
+        })
+        .collect::<Result<Vec<_>, PipelineError>>()?;
+
+    let transforms = input
+        .frames
+        .iter()
+        .map(|_| FrameAlignment::new(identity(), 1.0, 1.0))
+        .collect();
+    let alignment = AlignmentReport {
+        reference_index: input.reference,
+        frames: transforms,
+        ..AlignmentReport::default()
+    };
+
+    let reference = match cli.reference {
+        Reference::Auto => "auto".to_string(),
+        Reference::Index(index) => index.to_string(),
+    };
+    let params = ParamsReport {
+        method: method_name(cli.method).to_string(),
+        align: align_name(cli.align).to_string(),
+        reference,
+        estimation_radius: cli.estimation_radius,
+        keep_detail: cli.keep_detail,
+        detail_transfer: cli.detail_transfer,
+        exposure_match: exposure_name(cli.exposure_match).to_string(),
+        compression: compression_name(cli.compression).to_string(),
+        output_profile: output_profile_name(cli.output_profile).to_string(),
+        seed: cli.seed,
+        threads: cli.threads,
+    };
+
+    let output_hash = sha256_file(input.output_path).map_err(|err| {
+        PipelineError::Io(format!(
+            "failed to hash output '{}': {err}",
+            input.output_path.display()
+        ))
+    })?;
+    let output = OutputReport {
+        path: input.output_path.to_string_lossy().into_owned(),
+        sha256: output_hash,
+        clipped_pct: clipped_fraction(&input.output.rgb),
+        profile: icc_description(input.output.meta.icc.as_deref()),
+    };
+
+    let report = Report {
+        inputs,
+        params,
+        alignment,
+        method: MethodReport {
+            chosen: input.chosen.to_string(),
+            reason: method_reason(cli.method, input.frames.len()).to_string(),
+        },
+        output,
+        timing_ms: cli.timings.then_some(input.timing),
+        created_at: cli.stamp.then(utc_timestamp_now),
+        warnings: input.warnings,
+        ..Report::default()
+    };
+
+    std::fs::write(input.path, report.to_json()).map_err(|err| {
         PipelineError::Io(format!(
             "failed to write report '{}': {err}",
-            path.display()
+            input.path.display()
         ))
     })
 }
 
-fn json_string(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
-    out.push('"');
-    for ch in value.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            ch if ch.is_control() => {
-                let _ = write!(out, "\\u{:04x}", ch as u32);
-            }
-            ch => out.push(ch),
+fn identity() -> Similarity {
+    Similarity {
+        a: 1.0,
+        b: 0.0,
+        tx: 0.0,
+        ty: 0.0,
+    }
+}
+
+fn clipped_fraction(rgb: &[u16]) -> f64 {
+    let pixels = rgb.len() / 3;
+    if pixels == 0 {
+        return 0.0;
+    }
+    let clipped = rgb
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .filter(|pixel| pixel.iter().any(|&value| value == 0 || value == u16::MAX))
+        .count();
+    clipped as f64 / pixels as f64
+}
+
+fn chosen_method(method: Method, frames: usize) -> &'static str {
+    match method {
+        Method::Pmax if frames > 1 => "pmax",
+        Method::Dmap => "dmap",
+        _ => "reference",
+    }
+}
+
+fn method_reason(method: Method, frames: usize) -> &'static str {
+    if frames == 1 {
+        "single input"
+    } else {
+        match method {
+            Method::Pmax | Method::Dmap => "explicit",
+            _ => "fallback",
         }
     }
-    out.push('"');
-    out
+}
+
+const fn method_name(value: Method) -> &'static str {
+    match value {
+        Method::Auto => "auto",
+        Method::Pmax => "pmax",
+        Method::Dmap => "dmap",
+        Method::Hybrid => "hybrid",
+    }
+}
+
+const fn align_name(value: Align) -> &'static str {
+    match value {
+        Align::Auto => "auto",
+        Align::Translation => "translation",
+        Align::Similarity => "similarity",
+        Align::Off => "off",
+    }
+}
+
+const fn exposure_name(value: ExposureMatch) -> &'static str {
+    match value {
+        ExposureMatch::Off => "off",
+        ExposureMatch::Luma => "luma",
+        ExposureMatch::Rgb => "rgb",
+    }
+}
+
+const fn compression_name(value: Compression) -> &'static str {
+    match value {
+        Compression::None => "none",
+        Compression::Lzw => "lzw",
+        Compression::Deflate => "deflate",
+    }
+}
+
+const fn output_profile_name(value: OutputProfile) -> &'static str {
+    match value {
+        OutputProfile::Same => "same",
+        OutputProfile::Srgb => "srgb",
+        OutputProfile::Linear => "linear",
+    }
+}
+
+fn configure_threads(cli: &Cli) {
+    if let Some(threads) = cli.threads {
+        // Ignore an already-initialised global pool; the first caller owns it.
+        let _ = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build_global();
+    }
+}
+
+fn elapsed_ms(start: Instant) -> u64 {
+    u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 struct Progress {
@@ -463,11 +616,6 @@ impl Progress {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn json_string_escapes_control_characters() {
-        assert_eq!(json_string("a\n\"b\\"), "\"a\\n\\\"b\\\\\"");
-    }
 
     #[test]
     fn exit_codes_match_the_cli_document() {

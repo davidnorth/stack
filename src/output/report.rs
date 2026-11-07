@@ -10,6 +10,7 @@ use std::fmt::Write as _;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::Similarity;
 use crate::align::diagnostics::{AlignmentDiagnostics, ResidualStats};
@@ -304,6 +305,8 @@ pub struct ParamsReport {
     pub output_profile: String,
     /// Deterministic seed.
     pub seed: u64,
+    /// Explicit worker thread count; `None` means the default pool.
+    pub threads: Option<usize>,
 }
 
 impl Default for ParamsReport {
@@ -319,6 +322,7 @@ impl Default for ParamsReport {
             compression: "lzw".to_string(),
             output_profile: "same".to_string(),
             seed: 0,
+            threads: None,
         }
     }
 }
@@ -350,6 +354,12 @@ impl ParamsReport {
                 JsonValue::String(self.output_profile.clone()),
             ),
             ("seed", JsonValue::Unsigned(self.seed)),
+            (
+                "threads",
+                self.threads.map_or(JsonValue::Null, |threads| {
+                    JsonValue::Unsigned(threads as u64)
+                }),
+            ),
         ])
     }
 }
@@ -663,6 +673,53 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hex_digest(&hasher.finalize())
+}
+
+/// Human-readable ICC profile description, or `None` when absent or malformed.
+///
+/// Reports use the embedded description verbatim (`docs/outputs.md` §4).
+#[must_use]
+pub fn icc_description(icc: Option<&[u8]>) -> Option<String> {
+    let profile = lcms2::Profile::new_icc(icc?).ok()?;
+    profile.info(lcms2::InfoType::Description, lcms2::Locale::none())
+}
+
+/// Current UTC time as an ISO 8601 timestamp with second precision.
+///
+/// Only used when `--stamp` is given; the default report has no timestamp so
+/// runs stay byte-identical (`docs/outputs.md` §7).
+#[must_use]
+pub fn utc_timestamp_now() -> String {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs());
+    let days = (seconds / 86_400) as i64;
+    let remaining = seconds % 86_400;
+    let (year, month, day) = civil_from_days(days);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        remaining / 3_600,
+        (remaining % 3_600) / 60,
+        remaining % 60
+    )
+}
+
+/// Convert days since 1970-01-01 to a proleptic Gregorian date.
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    (
+        if month <= 2 { year + 1 } else { year },
+        month as u32,
+        day as u32,
+    )
 }
 
 /// SHA-256 of a file's bytes, as lowercase hex.
