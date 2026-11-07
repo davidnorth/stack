@@ -31,6 +31,33 @@ pub struct Resolution {
     pub unit: u16,
 }
 
+/// EXIF descriptive fields that can be copied safely to an output TIFF.
+///
+/// MakerNote is deliberately not represented: it is private to the source
+/// camera and cannot be relocated safely.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ExifFields {
+    pub image_description: Option<String>,
+    pub make: Option<String>,
+    pub model: Option<String>,
+    pub date_time: Option<String>,
+    pub artist: Option<String>,
+    pub copyright: Option<String>,
+}
+
+impl ExifFields {
+    /// Whether every field is absent.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.image_description.is_none()
+            && self.make.is_none()
+            && self.model.is_none()
+            && self.date_time.is_none()
+            && self.artist.is_none()
+            && self.copyright.is_none()
+    }
+}
+
 /// Per-frame metadata extracted during load.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameMeta {
@@ -43,10 +70,12 @@ pub struct FrameMeta {
     pub icc: Option<Vec<u8>>,
     /// EXIF orientation tag (274).
     pub orientation: u16,
-    /// EXIF payload, subject to the metadata copy policy.
-    pub exif: Option<Vec<u8>>,
+    /// Common EXIF descriptive fields, subject to the metadata copy policy.
+    pub exif: Option<ExifFields>,
     /// Raw XMP packet (tag 700), if present.
     pub xmp: Option<Vec<u8>>,
+    /// Raw IPTC-NAA record (tag 33723), if present.
+    pub iptc: Option<Vec<u8>>,
     /// Resolution tags (282/283/296), if present.
     pub resolution: Option<Resolution>,
 }
@@ -130,6 +159,7 @@ mod tests {
                 orientation: 1,
                 exif: None,
                 xmp: None,
+                iptc: None,
                 resolution: None,
             },
             rgb: vec![0; (width * height * 3) as usize],

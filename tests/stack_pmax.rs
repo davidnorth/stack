@@ -387,6 +387,7 @@ fn input_frame(path: PathBuf, seed: f32) -> Frame {
             orientation: 1,
             exif: None,
             xmp: None,
+            iptc: None,
             resolution: None,
         },
         rgb,

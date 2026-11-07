@@ -18,6 +18,7 @@ use crate::io::metadata::MetadataPolicy;
 use crate::io::tiff_read::read_tiff;
 use crate::io::tiff_write::{self, WriteOptions};
 use crate::output::depth::write_depth_map;
+use crate::output::preview;
 use crate::stack::dmap::{self, CostVolume, DmapOptions, InterpolationOptions};
 use crate::stack::pmax::{self, WeightOptions};
 use crate::{DepthField, Frame, VERSION};
@@ -169,6 +170,12 @@ pub fn run(cli: &Cli) -> Result<(), PipelineError> {
                 ));
             }
         }
+    }
+
+    if let Some(path) = &cli.preview {
+        progress.step(format_args!("writing preview {}", path.display()));
+        preview::write_preview(path, &output, cli.preview_size, output.meta.icc.as_deref())
+            .map_err(|err| PipelineError::Io(err.to_string()))?;
     }
 
     if let Some(path) = &cli.report {

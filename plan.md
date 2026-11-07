@@ -259,7 +259,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/output/report.rs`, `tests/report.rs`.
   - Done: schema validates; report deterministic across runs with `--timings` off.
 
-- [ ] **S6.2 Preview and metadata**
+- [x] **S6.2 Preview and metadata**
   - Scope: 8-bit sRGB JPEG preview, EXIF/XMP/IPTC policy, Software tag, resolution tags.
   - Read: `docs/outputs.md` §1, §5.
   - Touch: `src/output/preview.rs`, `src/io/metadata.rs`, `tests/metadata.rs`.

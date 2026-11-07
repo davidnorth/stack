@@ -233,3 +233,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (64 unit + all integration passed; 5 new report tests); schema parsed from serialized JSON; two report builds byte-identical with `timing_ms`/`created_at` absent; SHA-256 vectors and streamed file hash match
 - Decisions: kept the hand-rolled JSON writer with fixed field order; added a self-contained SHA-256 implementation (no new dependency); timings/timestamps are omitted unless supplied; top-level warnings are the deduplicated first-seen union of run/alignment/focus warnings; wiring `Report` into the pipeline/report CLI path is left to S6.4
 - Follow-ups: S6.4 should populate input/output hashes and params from the pipeline and expose `--timings`/`--stamp` through `Report`
+
+## S6.2 — 2026-11-07
+
+- Scope: 8-bit sRGB JPEG preview, EXIF/XMP/IPTC policy, Software tag, resolution tags
+- Changed: `Cargo.toml`, `Cargo.lock`, `src/lib.rs`, `src/io/metadata.rs`, `src/io/tiff_read.rs`, `src/io/tiff_write.rs`, `src/output/preview.rs`, `src/pipeline.rs`, `tests/metadata.rs`, `tests/{cli,output_depth,stack_pmax}.rs` (FrameMeta literals)
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (68 unit + all integration passed; 6 new metadata/preview tests); preview samples equal the 8-bit TIFF conversion exactly; Software tag is `focus-stack 0.1.0`; output orientation is 1 and resolution tags round-trip
+- Decisions: added `jpeg-encoder` with 4:4:4 sampling; preview converts through `ColorPipeline` when the output ICC is not sRGB; `FrameMeta` now carries `ExifFields` (common IFD0 descriptive tags only) and raw IPTC; MakerNote is never read or written; `--strip-metadata` keeps ICC, orientation, resolution, and Software
+- Follow-ups: EXIF sub-IFD fields that `tiff` does not expose (exposure, ISO, lens) are not yet copied; a pure-Rust EXIF IFD reader/writer can extend `ExifFields` without changing the policy API. Pipeline `--output-profile` wiring remains outside S6.2.

@@ -65,6 +65,7 @@ fn synthetic_frame(path: PathBuf, width: u32, height: u32, ridge: u32) -> Frame 
             orientation: 1,
             exif: None,
             xmp: None,
+            iptc: None,
             resolution: None,
         },
         rgb,

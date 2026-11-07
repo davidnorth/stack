@@ -10,10 +10,13 @@ use tiff::decoder::{Decoder, DecodingResult};
 use tiff::tags::Tag;
 
 use crate::io::exif;
-use crate::{Frame, FrameMeta, Resolution};
+use crate::{ExifFields, Frame, FrameMeta, Resolution};
 
 /// XMP packet tag (not in the `tiff` crate's named tag set).
 const TAG_XMP: Tag = Tag::from_u16_exhaustive(700);
+
+/// IPTC-NAA record tag.
+const TAG_IPTC: Tag = Tag::from_u16_exhaustive(33_723);
 
 /// Error returned while reading or interpreting a TIFF file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,6 +190,8 @@ pub fn decode_tiff<R: Read + Seek>(reader: R, path: &Path) -> Result<Frame, Tiff
 
     let icc = bytes_tag(&mut decoder, Tag::IccProfile, path)?;
     let xmp = bytes_tag(&mut decoder, TAG_XMP, path)?;
+    let iptc = bytes_tag(&mut decoder, TAG_IPTC, path)?;
+    let exif = exif_fields(&mut decoder, path)?;
     let resolution = resolution_tags(&mut decoder, path)?;
 
     let associated_alpha = decoder
@@ -242,9 +247,9 @@ pub fn decode_tiff<R: Read + Seek>(reader: R, path: &Path) -> Result<Frame, Tiff
             bits,
             icc,
             orientation,
-            // EXIF payload copy policy is implemented with the metadata work.
-            exif: None,
+            exif,
             xmp,
+            iptc,
             resolution,
         },
         rgb,
@@ -286,6 +291,35 @@ fn bytes_tag<R: Read + Seek>(
             .map(Some)
             .map_err(|err| tiff_error(path, "cannot read tag bytes", err)),
         None => Ok(None),
+    }
+}
+
+fn exif_fields<R: Read + Seek>(
+    decoder: &mut Decoder<R>,
+    path: &Path,
+) -> Result<Option<ExifFields>, TiffReadError> {
+    let fields = ExifFields {
+        image_description: ascii_tag(decoder, Tag::ImageDescription, path)?,
+        make: ascii_tag(decoder, Tag::Make, path)?,
+        model: ascii_tag(decoder, Tag::Model, path)?,
+        date_time: ascii_tag(decoder, Tag::DateTime, path)?,
+        artist: ascii_tag(decoder, Tag::Artist, path)?,
+        copyright: ascii_tag(decoder, Tag::Copyright, path)?,
+    };
+    Ok((!fields.is_empty()).then_some(fields))
+}
+
+fn ascii_tag<R: Read + Seek>(
+    decoder: &mut Decoder<R>,
+    tag: Tag,
+    path: &Path,
+) -> Result<Option<String>, TiffReadError> {
+    match decoder
+        .find_tag(tag)
+        .map_err(|err| tiff_error(path, "cannot read tag", err))?
+    {
+        Some(tiff::decoder::ifd::Value::Ascii(value)) if !value.is_empty() => Ok(Some(value)),
+        _ => Ok(None),
     }
 }
 

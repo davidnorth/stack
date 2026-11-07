@@ -12,10 +12,13 @@ use tiff::encoder::{
 use tiff::tags::Tag;
 
 use crate::io::metadata::{MetadataPolicy, OutputMetadata};
-use crate::{Frame, Resolution, VERSION};
+use crate::{ExifFields, Frame, Resolution, VERSION};
 
 /// XMP packet tag (not in the `tiff` crate's named tag set).
 const TAG_XMP: Tag = Tag::from_u16_exhaustive(700);
+
+/// IPTC-NAA record tag.
+const TAG_IPTC: Tag = Tag::from_u16_exhaustive(33_723);
 
 /// Output compression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -220,6 +223,9 @@ fn write_tags<W: Write + Seek, C: ColorType, K: TiffKind>(
         "cannot write software tag",
     )?;
 
+    if let Some(exif) = &metadata.exif {
+        write_exif_fields(encoder, exif, path)?;
+    }
     if let Some(icc) = &metadata.icc {
         write(
             encoder.write_tag(Tag::IccProfile, icc.as_slice()),
@@ -232,8 +238,39 @@ fn write_tags<W: Write + Seek, C: ColorType, K: TiffKind>(
             "cannot write XMP packet",
         )?;
     }
+    if let Some(iptc) = &metadata.iptc {
+        write(
+            encoder.write_tag(TAG_IPTC, iptc.as_slice()),
+            "cannot write IPTC record",
+        )?;
+    }
     if let Some(resolution) = metadata.resolution {
         write_resolution(encoder, resolution, path)?;
+    }
+
+    Ok(())
+}
+
+fn write_exif_fields<K: TiffKind>(
+    encoder: &mut tiff::encoder::DirectoryEncoder<'_, impl Write + Seek, K>,
+    exif: &ExifFields,
+    path: &Path,
+) -> Result<(), TiffWriteError> {
+    let write = |result: tiff::TiffResult<()>, context: &str| {
+        result.map_err(|err| tiff_error(path, context, err))
+    };
+
+    for (tag, value) in [
+        (Tag::ImageDescription, exif.image_description.as_deref()),
+        (Tag::Make, exif.make.as_deref()),
+        (Tag::Model, exif.model.as_deref()),
+        (Tag::DateTime, exif.date_time.as_deref()),
+        (Tag::Artist, exif.artist.as_deref()),
+        (Tag::Copyright, exif.copyright.as_deref()),
+    ] {
+        if let Some(value) = value {
+            write(encoder.write_tag(tag, value), "cannot write EXIF field")?;
+        }
     }
 
     Ok(())

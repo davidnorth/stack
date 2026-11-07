@@ -64,6 +64,7 @@ fn small_frame(path: PathBuf, width: u32, height: u32) -> Frame {
             orientation: 1,
             exif: None,
             xmp: None,
+            iptc: None,
             resolution: None,
         },
         rgb: vec![0; (width * height * 3) as usize],
