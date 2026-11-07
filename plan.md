@@ -131,7 +131,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/align/logpolar.rs`, `tests/align_logpolar.rs`.
   - Done: ±2° and 1.5% scale recovered within 0.1°/0.1%.
 
-- [ ] **S1.4 ECC similarity refinement**
+- [x] **S1.4 ECC similarity refinement**
   - Scope: 4-parameter similarity, pyramidal inverse-compositional Lucas–Kanade, Huber weights, masks, convergence.
   - Read: `docs/alignment.md` §5.
   - Touch: `src/align/ecc.rs`, `tests/align_ecc.rs`.

@@ -88,3 +88,11 @@ Format:
 - Decisions: reuse the crate-visible radix-2 FFT; apply a radial Hann window before the high-pass so the window's low-frequency lobe is removed and rotation equivariance is preserved; start log-polar sampling at 7% of the FFT half-size to skip the high-pass transition; resolve the 180° ambiguity by normalized correlation of both candidate warps; clamp scale/rotation to §1 defaults with explicit flags
 - Follow-ups: FM confidence is dominated by the 180° twin peak, so S1.4 should use its own final correlation for the low-confidence identity fallback
 
+
+## S1.4 — 2026-11-07
+
+- Scope: ECC similarity refinement — 4-parameter similarity, 5-level inverse-compositional Lucas–Kanade, Huber weights, masks, tile rejection, convergence
+- Changed: `src/align/ecc.rs`, `tests/align_ecc.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (53 unit + 73 integration passed; 5 new ECC tests); identity start, 5% outlier pixels, and perturbed coarse start all recover the synthetic similarity within the <0.05 px gate; masked occlusion test passes
+- Decisions: keep the full-resolution `Similarity` while processing each level, converting to/from level coordinates with the 2×2 box-downsample centre offset; templates use central-difference gradients and per-level steepest-descent images, while robust IRLS weights rebuild the 4×4 normal equations each iteration; the linear solve returns additive increments, converted to the group element `(1+da, db, dtx, dty)` before inverse composition; Huber delta 0.05, 16 px tiles with 3× median rejection (majority kept), ridge-damped 4×4 Gaussian elimination, edge-clamped bilinear sampling; final Pearson correlation below 0.3 sets `correlation_warns`
+- Follow-ups: pipeline wiring and coarse-to-fine level feeding (`AlignmentLevel` 1024→2048) remain for S1.6; tile-level residual diagnostics belong to S1.6; final warp/crop is S1.5
