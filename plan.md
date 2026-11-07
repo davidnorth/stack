@@ -153,7 +153,7 @@ the same stacks as tuning and validation sets.
 
 ## S2 — Focus measurement (2–3 days)
 
-- [ ] **S2.1 Laplacian pyramid**
+- [x] **S2.1 Laplacian pyramid**
   - Scope: Gaussian/Laplacian pyramid in f32, level count policy, buffer reuse.
   - Read: `docs/focus-measure.md` §2.
   - Touch: `src/focus/pyramid.rs`, `tests/focus_pyramid.rs`.
