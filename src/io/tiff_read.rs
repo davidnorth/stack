@@ -10,7 +10,7 @@ use tiff::decoder::{Decoder, DecodingResult};
 use tiff::tags::Tag;
 
 use crate::io::exif;
-use crate::{Frame, FrameMeta};
+use crate::{Frame, FrameMeta, Resolution};
 
 /// XMP packet tag (not in the `tiff` crate's named tag set).
 const TAG_XMP: Tag = Tag::from_u16_exhaustive(700);
@@ -187,6 +187,7 @@ pub fn decode_tiff<R: Read + Seek>(reader: R, path: &Path) -> Result<Frame, Tiff
 
     let icc = bytes_tag(&mut decoder, Tag::IccProfile, path)?;
     let xmp = bytes_tag(&mut decoder, TAG_XMP, path)?;
+    let resolution = resolution_tags(&mut decoder, path)?;
 
     let associated_alpha = decoder
         .find_tag_unsigned_vec::<u16>(Tag::ExtraSamples)
@@ -244,6 +245,7 @@ pub fn decode_tiff<R: Read + Seek>(reader: R, path: &Path) -> Result<Frame, Tiff
             // EXIF payload copy policy is implemented with the metadata work.
             exif: None,
             xmp,
+            resolution,
         },
         rgb,
     })
@@ -284,6 +286,44 @@ fn bytes_tag<R: Read + Seek>(
             .map(Some)
             .map_err(|err| tiff_error(path, "cannot read tag bytes", err)),
         None => Ok(None),
+    }
+}
+
+fn resolution_tags<R: Read + Seek>(
+    decoder: &mut Decoder<R>,
+    path: &Path,
+) -> Result<Option<Resolution>, TiffReadError> {
+    let x = rational_tag(decoder, Tag::XResolution, path)?;
+    let y = rational_tag(decoder, Tag::YResolution, path)?;
+    let unit = unsigned_tag(decoder, Tag::ResolutionUnit, path)?.unwrap_or(1);
+
+    Ok(match (x, y) {
+        (Some((x_numerator, x_denominator)), Some((y_numerator, y_denominator))) => {
+            Some(Resolution {
+                x_numerator,
+                x_denominator,
+                y_numerator,
+                y_denominator,
+                unit,
+            })
+        }
+        _ => None,
+    })
+}
+
+fn rational_tag<R: Read + Seek>(
+    decoder: &mut Decoder<R>,
+    tag: Tag,
+    path: &Path,
+) -> Result<Option<(u32, u32)>, TiffReadError> {
+    match decoder
+        .find_tag(tag)
+        .map_err(|err| tiff_error(path, "cannot read tag", err))?
+    {
+        Some(tiff::decoder::ifd::Value::Rational(numerator, denominator)) => {
+            Ok(Some((numerator, denominator)))
+        }
+        _ => Ok(None),
     }
 }
 

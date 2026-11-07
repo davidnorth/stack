@@ -85,7 +85,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/io/tiff_read.rs`, `src/io/exif.rs`, `tests/io_read.rs`, `fixtures/io/*`.
   - Done: every fixture variant decodes to expected pixels; unsupported inputs fail with a clear error; orientation unit tests pass.
 
-- [ ] **S0.3 TIFF writer and round-trip**
+- [x] **S0.3 TIFF writer and round-trip**
   - Scope: encode 16-bit RGB, none/LZW/Deflate, ICC tag, resolution, orientation=1, metadata copy policy.
   - Read: `docs/io-and-color.md` §4–5, §7.
   - Touch: `src/io/tiff_write.rs`, `src/io/metadata.rs`, `tests/io_roundtrip.rs`.

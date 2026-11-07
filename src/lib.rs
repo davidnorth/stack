@@ -20,6 +20,17 @@ use std::path::PathBuf;
 /// Crate version, taken from `Cargo.toml`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// TIFF resolution tags (282/283/296), copied verbatim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Resolution {
+    pub x_numerator: u32,
+    pub x_denominator: u32,
+    pub y_numerator: u32,
+    pub y_denominator: u32,
+    /// TIFF resolution unit (296): 1 = none, 2 = inch, 3 = centimetre.
+    pub unit: u16,
+}
+
 /// Per-frame metadata extracted during load.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameMeta {
@@ -36,6 +47,8 @@ pub struct FrameMeta {
     pub exif: Option<Vec<u8>>,
     /// Raw XMP packet (tag 700), if present.
     pub xmp: Option<Vec<u8>>,
+    /// Resolution tags (282/283/296), if present.
+    pub resolution: Option<Resolution>,
 }
 
 /// Decoded frame with interleaved RGB samples.
@@ -117,6 +130,7 @@ mod tests {
                 orientation: 1,
                 exif: None,
                 xmp: None,
+                resolution: None,
             },
             rgb: vec![0; (width * height * 3) as usize],
         };
