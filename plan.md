@@ -113,7 +113,7 @@ the same stacks as tuning and validation sets.
 
 ## S1 — Alignment (3–4 days)
 
-- [ ] **S1.1 Alignment preprocessing**
+- [x] **S1.1 Alignment preprocessing**
   - Scope: encoded luma, downsample, gradient mask, saturation/dark masks, Hann window.
   - Read: `docs/alignment.md` §2.
   - Touch: `src/align/preprocess.rs`, `tests/align_preprocess.rs`.

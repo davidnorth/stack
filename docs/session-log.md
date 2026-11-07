@@ -63,3 +63,12 @@ Format:
 - Evidence: `cargo fmt --all --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (36 unit + 50 integration passed; 9 synthetic unit + 6 synthetic integration); delta responses match disk `E[r²]=c²/2` and Gaussian `E[r²]=2σ²`; same seed is bit-identical, different seed differs; 512×512 fixture renders with radii equal to `coc_scale·|1/z−1/z_f|` clamped to `c_max`
 - Decisions: added `serde` + `toml` for the documented TOML input; procedural scene/depth (far background plus two subject blobs) keeps layer bounding boxes small, so the 512×512 fixture renders in ~10 s in debug; layers are quantized with feathered linear weights and composited front-to-back; disk PSF is an exact discrete convolution with fractional radii interpolated between neighbouring integer kernels; Gaussian uses `sigma = c/1.5`; shot noise uses `g = noise_shot²` photon scale and a normal approximation above λ=30; known transforms are applied after defocus and map output coordinates to source coordinates (positive `tx` moves content left), matching `Similarity`
 - Follow-ups: generator is not yet wired into the CLI/eval command; milestone-sized (2048×1365) rendering and per-fixture expected metrics belong to S7; disk convolution is direct rather than FFT, revisit if large fixtures become slow
+
+## S1.1 — 2026-11-07
+
+- Scope: alignment preprocessing — encoded luma, capped downsampling, high-pass, gradient/colour masks, Hann window
+- Changed: `src/align/preprocess.rs`, `tests/align_preprocess.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (36 unit + 50 integration passed; 9 new preprocess tests); flat sky, saturated pixels, and crushed shadows excluded in synthetic cases; level buffers capped by the requested long edge
+- Decisions: API takes full-resolution encoded interleaved RGB `f32`; only full-res luma plus a 1-byte colour-validity mask are retained, and each level is built directly from them (conservative validity: any invalid source pixel invalidates the destination); p20 threshold uses a histogram rather than a sorted copy; targets larger than the source collapse to native size
+- Follow-ups: S1.2 consumes `AlignmentLevel`; reference-frame selection from gradient energy and pipeline wiring remain for later sessions
+
