@@ -323,14 +323,19 @@ fn accumulate_upsampled(
         return;
     }
 
+    // Each level is a power-of-two reduction of the finest map; use its actual
+    // source-to-destination ratio rather than assuming a single halving.
+    let scale_x = sw as f32 / ow as f32;
+    let scale_y = sh as f32 / oh as f32;
+
     out.par_chunks_mut(ow).enumerate().for_each(|(dy, row)| {
-        let fy = dy as f32 * 0.5;
+        let fy = dy as f32 * scale_y;
         let y0 = (fy.floor() as usize).min(sh - 1);
         let ty = fy - y0 as f32;
         let y1 = (y0 + 1).min(sh - 1);
 
         for (dx, value) in row.iter_mut().enumerate() {
-            let fx = dx as f32 * 0.5;
+            let fx = dx as f32 * scale_x;
             let x0 = (fx.floor() as usize).min(sw - 1);
             let tx = fx - x0 as f32;
             let x1 = (x0 + 1).min(sw - 1);

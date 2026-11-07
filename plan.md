@@ -171,7 +171,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/focus/energy.rs`, `tests/focus_energy.rs`.
   - Done: monotonic response to a known blur ladder; 4-frame 24 MP energy pass < 1 s.
 
-- [ ] **S2.4 Confidence, coverage, and calibration**
+- [x] **S2.4 Confidence, coverage, and calibration**
   - Scope: best-vs-second margin, guided smoothing, coverage mask, saturation exclusion, per-frame calibration, statistics.
   - Read: `docs/focus-measure.md` §5–6.
   - Touch: `src/focus/confidence.rs`, `src/focus/coverage.rs`, `tests/focus_confidence.rs`.
