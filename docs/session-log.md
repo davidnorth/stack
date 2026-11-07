@@ -128,3 +128,11 @@ Format:
 - Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 5 new noise tests); synthetic per-level sigma within 5% at 0.01/0.02/0.04; textured half does not inflate the 0.012 estimate
 - Decisions: gradient magnitude is central-difference `hypot` on `G_l`; mask uses the strict `< p20` from §3 with an `<=` tie fallback so flat regions with zero gradient still contribute; MAD is centred on the median, which equals `1.4826 * median(|Lap|)` for zero-mean bands and keeps the coarsest residual from reporting its brightness as noise; sigma clamps to `1e-6`; expose `NoiseModel` per level plus `noise_floor`/`subtract_noise_floor` for S2.3
 - Follow-ups: JSON report wiring of per-frame/per-level sigma remains with the report task; mask/median allocation can be pooled with the focus workspace later if profiling shows it
+
+## S2.3 — 2026-11-07
+
+- Scope: box energy via summed-area tables, radius schedule, contrast normalization, cross-level aggregation weights
+- Changed: `src/focus/energy.rs`, `tests/focus_energy.rs`
+- Evidence: `cargo fmt --check` clean; `cargo clippy --all-targets -- -D warnings` clean; `cargo test` (62 unit + all integration passed; 9 new energy tests + 1 ignored perf gate); box filter matches brute force for radii 0–20; auto radius 12 at 24 MP and 17 at 60 MP; blur ladder (sigma 0/1/2/4) strictly decreases both finest and aggregated energy; release gate `cargo test --release --test focus_energy four_frame_24mp_energy_pass_under_one_second -- --ignored` measured 0.604 s (< 1 s)
+- Decisions: box windows clip at borders and divide by the actual area; SAT is built in `f64` for cancellation-safe differences and box rows are rayon-parallel; `EnergyOptions` carries optional `r0` plus `--contrast-normalize`; aggregation excludes the coarsest residual (`Lap_L = G_L`) and applies the §6 weights to band levels 0..L-1, bilinearly upsampling with the pyramid's `x / 2` mapping; public `energy_map`/`box_filter`/`aggregate_levels` are exposed for S2.4 and the stacker
+- Follow-ups: pipeline wiring and the CLI `--estimation-radius` / `--contrast-normalize` plumbing remain with the focus-measure integration task; aggregation is measured within the 4-frame gate alongside map computation

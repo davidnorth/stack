@@ -165,7 +165,7 @@ the same stacks as tuning and validation sets.
   - Touch: `src/focus/noise.rs`, `tests/focus_noise.rs`.
   - Done: synthetic sigma within 5%; texture does not inflate the estimate.
 
-- [ ] **S2.3 Energy maps**
+- [x] **S2.3 Energy maps**
   - Scope: box energy via summed-area tables, radius schedule, contrast normalization, cross-level aggregation weights.
   - Read: `docs/focus-measure.md` §4, §6.
   - Touch: `src/focus/energy.rs`, `tests/focus_energy.rs`.
