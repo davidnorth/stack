@@ -111,12 +111,13 @@ fixtures/
   manifest.toml  fixture list, expected metrics, tolerances
 ```
 
-CI jobs:
-- `fmt`, `clippy`, `test` on every push.
+Local gates (this project runs no hosted CI):
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and
+  `cargo test` before each commit.
 - Tiny regression suite (< 2 min): I/O round-trip, alignment, one 512×512
   synthetic stack per method, report schema.
-- Nightly: full synthetic suite and 2 MP fixtures.
-- Release: full real-stack A/B is manual; CI only checks that fixtures load.
+- On demand: full synthetic suite and 2 MP fixtures.
+- Release: full real-stack A/B is manual; the fixture loader is checked locally.
 
 Tolerance policy:
 - PSNR ±0.2 dB, SSIM ±0.001, detail ±0.01, halo ±0.002, noise ±0.02,

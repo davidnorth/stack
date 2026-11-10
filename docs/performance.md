@@ -81,10 +81,10 @@ Peak RSS of the benchmark processes (setup included): PMax 5.02 GB, DMap
 - `benches/thresholds.json` stores a limit of 2× the reference median for every
   benchmark. `benches/check_performance.py` compares the latest Criterion
   estimates against those limits and exits non-zero on a breach.
-- The `bench` CI job runs on the nightly schedule and on manual dispatch,
-  then uploads `target/criterion` as an artifact. A gross regression fails the
-  run. The 20 % review policy from `docs/quality.md` §6 still applies to PRs;
-  the 2× CI limit is deliberately loose enough for runner variation.
+- Run the command and then `python3 benches/check_performance.py` manually; a
+  gross regression exits non-zero. The 20 % review policy from
+  `docs/quality.md` §6 applies to changes. The 2× limit is deliberately loose
+  enough for machine variation.
 
 ## Method
 
